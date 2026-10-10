@@ -704,7 +704,38 @@ volumes:
 | 数据目录 | `backend/storage` 需要持久化；`chrome-profiles` 含登录态，注意权限 |
 | 备份 | 备份数据库 + `storage/chrome-profiles`（登录态）+ `storage/auth` |
 
-### 7.7 常见问题
+### 7.7 Git 推送（Windows 上的常见故障）
+
+如果 `git clone` / `fetch` / `push` 报下面这种错：
+
+```
+fatal: unable to access 'https://github.com/...': schannel:
+  AcquireCredentialsHandle failed: SEC_E_NO_CREDENTIALS (0x8009030e)
+```
+
+这是 Git for Windows 默认的 **schannel TLS 后端**取不到凭据导致的（常见于系统证书存储异常、
+受限运行环境）。换用随 Git 一起分发的 OpenSSL 后端即可：
+
+```powershell
+# 方式一：单次生效
+git -c http.sslBackend=openssl push origin main
+
+# 方式二：持久生效（写入全局配置，之后所有 git 操作都用 OpenSSL）
+git config --global http.sslBackend openssl
+
+# 方式三：全局配置不可写时，用环境变量（注意要在同一个会话里先设置再执行 git）
+$env:GIT_SSL_BACKEND = 'openssl'   # 部分 git 版本不识别，优先用方式一/二
+```
+
+排查顺序建议：先 `git -c http.sslBackend=openssl ls-remote <仓库地址>`。
+能列出 ref 就说明只是 TLS 后端问题，与网络阻断无关。
+
+> 若报 `could not read Username for 'https://github.com'`，说明本机还没有该站点的凭据。
+> 确认 Windows 凭据管理器里存在 `git:https://<用户名>@github.com` 条目
+> （`cmdkey /list | findstr github`），或在能弹出浏览器的终端里执行一次 `git push`
+> 走 Git Credential Manager 完成 OAuth 授权。
+
+### 7.8 常见问题
 
 | 现象 | 原因 / 处理 |
 |------|-------------|
