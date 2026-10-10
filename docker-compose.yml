@@ -1,0 +1,96 @@
+# ============================================================
+# 智能求职辅助工作台 · Docker Compose
+# ------------------------------------------------------------
+# 启动：  docker compose up -d --build
+# 访问：  http://localhost:8080
+#
+# 关于数据库
+#   默认使用 compose 里的 PostgreSQL 容器。
+#   不想用 PostgreSQL 时：
+#     1) 删除 backend 的 depends_on 与 BZP_DATABASE_URL；
+#     2) 保留 BZP_DATABASE_URL=sqlite+aiosqlite:///./storage/boss_workbench.db
+#
+# 关于扫码登录
+#   抓取依赖本机已登录的专用 Chrome/Edge。容器里可以在有显示服务时
+#   启动浏览器（需要 /tmp/.X11-unix 与 DISPLAY），否则建议在宿主机
+#   完成一次扫码，然后把 backend/storage/chrome-profiles 挂载进容器。
+# ============================================================
+
+services:
+  # ---------- 数据库（PostgreSQL） ----------
+  postgres:
+    image: postgres:16-alpine
+    container_name: bzp-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: boss
+      POSTGRES_PASSWORD: boss_change_me
+      POSTGRES_DB: boss_workbench
+      TZ: Asia/Shanghai
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+      - ./deploy/sql/schema_postgresql.sql:/docker-entrypoint-initdb.d/01-schema.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U boss -d boss_workbench"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    # 仅本机可访问，避免数据库暴露到公网
+    ports:
+      - "127.0.0.1:5432:5432"
+
+  # ---------- 后端 ----------
+  backend:
+    build:
+      context: .
+      dockerfile: deploy/backend.Dockerfile
+    container_name: bzp-backend
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      BZP_HOST: 0.0.0.0
+      BZP_PORT: 8000
+      BZP_DATABASE_URL: postgresql+asyncpg://boss:boss_change_me@postgres:5432/boss_workbench
+      BZP_STORAGE_ROOT: /app/backend/storage
+      BZP_SCRAPER_DIR: /app/boss-zhipin-scraper
+      BZP_CORS_ORIGINS: http://localhost:8080,http://127.0.0.1:8080
+      BZP_MAX_CONCURRENT_TASKS: "2"
+      BZP_TASK_DELAY_MIN: "3"
+      BZP_TASK_DELAY_MAX: "5"
+      BZP_CDP_PORT: "9222"
+      # ⚠️ 生产务必替换成随机值
+      BZP_SECRET_KEY: change-me-in-production-please
+      TZ: Asia/Shanghai
+      # 需要容器内启动浏览器时取消下一行注释，并挂载 X11 socket
+      # DISPLAY: host.docker.internal:0
+    volumes:
+      - backend-storage:/app/backend/storage
+      # 想在容器里用宿主机已登录的隔离 profile 时，改成绑定宿主机目录：
+      # - ./backend/storage/chrome-profiles:/app/backend/storage/chrome-profiles
+      # X11 转发（Linux 桌面环境扫码登录用）
+      # - /tmp/.X11-unix:/tmp/.X11-unix:rw
+    ports:
+      # 仅为方便直接访问 /docs 调试；生产可注释掉，统一走 Nginx
+      - "127.0.0.1:8000:8000"
+    # Chromium 在容器内运行需要更大的共享内存
+    shm_size: "1gb"
+
+  # ---------- 前端（Nginx 静态托管 + API 代理） ----------
+  frontend:
+    build:
+      context: .
+      dockerfile: deploy/frontend.Dockerfile
+    container_name: bzp-frontend
+    restart: unless-stopped
+    depends_on:
+      - backend
+    environment:
+      TZ: Asia/Shanghai
+    ports:
+      - "8080:80"
+
+volumes:
+  postgres-data:
+  backend-storage:

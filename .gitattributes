@@ -1,0 +1,32 @@
+# ============================================================
+# 统一换行符，避免 Windows 上每次提交都刷 CRLF 警告
+# ============================================================
+* text=auto eol=lf
+
+# Windows 批处理必须是 CRLF，否则按行解析可能出问题
+*.bat text eol=crlf
+*.cmd text eol=crlf
+
+# PowerShell 脚本保持 LF；注意必须带 UTF-8 BOM，
+# 否则 Windows PowerShell 5.1 会按 GBK 解析导致中文乱码、脚本报语法错
+*.ps1 text eol=lf
+
+# 二进制文件不做换行转换，也不参与 diff
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.pdf binary
+*.zip binary
+*.gz binary
+*.woff binary
+*.woff2 binary
+*.ttf binary
+
+# 锁文件在 diff 里折叠，避免刷屏
+package-lock.json -diff linguist-generated=true
+uv.lock -diff linguist-generated=true
+
+# 文档里的 SQL 便于阅读
+*.sql text eol=lf

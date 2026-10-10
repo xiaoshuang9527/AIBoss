@@ -1,0 +1,179 @@
+:root {
+  /* 企业级 SaaS 仪表盘的克制配色：中性灰底 + 单一品牌蓝 */
+  --bzp-bg: #f4f6fa;
+  --bzp-panel: #ffffff;
+  --bzp-border: #e6eaf2;
+  --bzp-text: #1f2b3d;
+  --bzp-text-secondary: #6b7a90;
+  --bzp-primary: #2f6bff;
+  --bzp-success: #14b87a;
+  --bzp-warning: #f5a623;
+  --bzp-danger: #f0475b;
+  --bzp-sidebar: #101a2c;
+  --bzp-sidebar-hover: #1b2942;
+  --bzp-radius: 10px;
+  --bzp-shadow: 0 1px 2px rgba(16, 26, 44, 0.04), 0 6px 20px rgba(16, 26, 44, 0.06);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#app {
+  height: 100%;
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  background: var(--bzp-bg);
+  color: var(--bzp-text);
+  font-family: 'Inter', 'PingFang SC', 'Microsoft YaHei', 'Helvetica Neue', Arial, sans-serif;
+  font-size: 14px;
+  -webkit-font-smoothing: antialiased;
+}
+
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+::-webkit-scrollbar-thumb {
+  background: #c9d2e0;
+  border-radius: 4px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #aeb9cb;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+/* ---------------- 通用面板 ---------------- */
+.bzp-panel {
+  background: var(--bzp-panel);
+  border: 1px solid var(--bzp-border);
+  border-radius: var(--bzp-radius);
+  box-shadow: var(--bzp-shadow);
+}
+
+.bzp-panel__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 16px 20px;
+  border-bottom: 1px solid var(--bzp-border);
+}
+
+.bzp-panel__title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--bzp-text);
+}
+
+.bzp-panel__subtitle {
+  font-size: 12px;
+  color: var(--bzp-text-secondary);
+  font-weight: 400;
+}
+
+.bzp-panel__body {
+  padding: 20px;
+}
+
+.bzp-page {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.bzp-grid {
+  display: grid;
+  gap: 16px;
+}
+
+.bzp-grid--2 {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.bzp-grid--3 {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.bzp-muted {
+  color: var(--bzp-text-secondary);
+}
+
+.bzp-mono {
+  font-family: 'JetBrains Mono', 'Cascadia Code', Consolas, monospace;
+  font-size: 12px;
+}
+
+/* 日志终端风格 */
+.bzp-terminal {
+  background: #0d1421;
+  color: #cbd6e6;
+  border-radius: 8px;
+  padding: 14px 16px;
+  font-family: 'JetBrains Mono', 'Cascadia Code', Consolas, monospace;
+  font-size: 12px;
+  line-height: 1.7;
+  max-height: 380px;
+  overflow: auto;
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+
+/* JD 全文排版 */
+.bzp-jd {
+  white-space: pre-wrap;
+  line-height: 1.85;
+  color: #33415c;
+  font-size: 13px;
+}
+
+.bzp-jd__section-title {
+  font-weight: 600;
+  color: var(--bzp-text);
+  margin: 14px 0 6px;
+}
+
+/* Element Plus 微调 */
+.el-card,
+.el-table,
+.el-dialog {
+  --el-border-radius-base: 8px;
+}
+
+.el-table th.el-table__cell {
+  background: #f8fafd !important;
+  color: var(--bzp-text-secondary);
+  font-weight: 600;
+}
+
+.el-descriptions__label {
+  color: var(--bzp-text-secondary) !important;
+}
+
+.el-button--primary {
+  --el-button-bg-color: var(--bzp-primary);
+  --el-button-border-color: var(--bzp-primary);
+}
+
+@media (max-width: 1200px) {
+  .bzp-grid--3 {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 820px) {
+  .bzp-grid--2,
+  .bzp-grid--3 {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
