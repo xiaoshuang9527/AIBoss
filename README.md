@@ -319,7 +319,7 @@ D:\Project\Boss\
 | `/api/ws/tasks` | `connected`、`queue.started`、`queue.updated`、`queue.delay`、`task.created`、`task.started`、`task.progress`、`task.retrying`、`task.finished`、`browser.starting` |
 | `/api/ws/auth` | `connected`、`auth.progress` |
 
-交互式文档：启动后访问 `http://127.0.0.1:8000/docs`。
+交互式文档：启动后访问 `http://127.0.0.1:18080/docs`。
 
 ---
 
@@ -564,8 +564,8 @@ Copy-Item backend\.env.example backend\.env
 powershell -ExecutionPolicy Bypass -File scripts\check-env.ps1
 
 # 5) 启动后端（新终端）与前端（另一个新终端）
-powershell -ExecutionPolicy Bypass -File scripts\start-backend.ps1 -Port 8000
-powershell -ExecutionPolicy Bypass -File scripts\start-frontend.ps1 -ApiTarget http://127.0.0.1:8000
+powershell -ExecutionPolicy Bypass -File scripts\start-backend.ps1
+powershell -ExecutionPolicy Bypass -File scripts\start-frontend.ps1
 ```
 
 > **为什么要加 `-ExecutionPolicy Bypass`**：Windows 默认执行策略（`Restricted`）会拒绝运行
@@ -576,14 +576,24 @@ powershell -ExecutionPolicy Bypass -File scripts\start-frontend.ps1 -ApiTarget h
 > [7.2.1 手动启动](#721-不使用脚本手动启动)）。
 
 访问 <http://127.0.0.1:5173> 打开工作台；后端接口文档在
-<http://127.0.0.1:8000/docs>。
+<http://127.0.0.1:18080/docs>。
 
-> 若 8000 端口被占用，把 `-Port` 与 `-ApiTarget` 一起改成别的端口，例如
-> `-Port 18080` + `-ApiTarget http://127.0.0.1:18080`。
+> **为什么默认端口是 18080 而不是 8000**
+>
+> 8000 是"约定俗成"的端口，很多机器上已经被其他应用占用。一旦冲突，
+> 后端会起不来；更麻烦的情况是后端起来了但前端代理打到了那个应用上，
+> 于是**每个接口都返回 404「资源不存在」**——现象上极像"接口没注册"或
+> "后端没启动"，排查方向会被完全带偏。
+>
+> 前后端脚本的默认值已经统一到 18080，`backend/.env` 的 `BZP_PORT` 也一并改好。
+> 如果你想换端口，**三处必须一起改**：
+> 1. `scripts\start-backend.ps1 -Port <端口>`
+> 2. `scripts\start-frontend.ps1 -ApiTarget http://127.0.0.1:<端口>`
+> 3. `backend\.env` 的 `BZP_PORT=<端口>`
 >
 > 端口占用情况可以先探测一下：
 > ```powershell
-> Test-NetConnection 127.0.0.1 -Port 8000 -InformationLevel Quiet
+> Test-NetConnection 127.0.0.1 -Port 18080 -InformationLevel Quiet
 > ```
 
 #### 7.2.1 不使用脚本手动启动
@@ -595,11 +605,11 @@ powershell -ExecutionPolicy Bypass -File scripts\start-frontend.ps1 -ApiTarget h
 cd backend
 $env:PYTHONIOENCODING = 'utf-8'   # 让爬虫的中文输出在 Windows 控制台不乱码
 $env:PYTHONUTF8 = '1'
-..\.venv-backend\Scripts\python.exe -m uvicorn bzp_workbench.main:app --host 127.0.0.1 --port 8000 --reload
+..\.venv-backend\Scripts\python.exe -m uvicorn bzp_workbench.main:app --host 127.0.0.1 --port 18080 --reload
 
 # 前端（在 frontend 目录下）
 cd frontend
-$env:VITE_API_TARGET = 'http://127.0.0.1:8000'
+$env:VITE_API_TARGET = 'http://127.0.0.1:18080'
 npx vite
 ```
 
@@ -621,18 +631,33 @@ npx vite
 powershell -ExecutionPolicy Bypass -File scripts\start-boss-browser.ps1 [-Port 9222] [-UseEdge]
 ```
 
-它等价于下面这条手工命令（`--disable-crash-reporter` 用于规避某些环境下
-Chrome 因崩溃收集器起不来而直接退出的问题）：
+它等价于下面这条手工命令：
 
 ```powershell
+# 先问后端要「当前授权档案真正的 profile 目录」——
+# 千万不要自己拼一个路径，原因见下方说明。
+$dir = (Invoke-WebRequest http://127.0.0.1:18080/api/auth/status -UseBasicParsing |
+        ConvertFrom-Json).data.profile.profile_dir
+
 & "C:\Program Files\Google\Chrome\Application\chrome.exe" `
   --remote-debugging-port=9222 `
-  --user-data-dir="D:\Project\Boss\backend\storage\chrome-profiles\.boss-zhipin-scraper\chrome-profile" `
+  --user-data-dir="$dir" `
   --no-first-run --no-default-browser-check --remote-allow-origins=* `
   --disable-crash-reporter `
   "https://www.zhipin.com"
 ```
 
+> ⚠️ **`--user-data-dir` 必须用后端返回的那个目录**。
+>
+> 工作台给每个授权档案分配一个按 `profile_hash` 命名的独立目录
+> （`chrome-profiles/<hash>`），而不是固定的名字。如果手工写死成别的路径
+> （例如 `chrome-profiles\.boss-zhipin-scraper\chrome-profile`），
+> Chrome 会把登录态存到那个目录，而后端去自己的目录里读 —— 结果是
+> **扫码看起来成功了，但「校验登录态」永远显示「登录态无效」**。
+> 这个症状极像扫码失败，实际上问题在路径不一致。
+>
+> `scripts\start-boss-browser.ps1` 已经改成自动向后端查询该路径，用脚本就不会踩到。
+>
 > ⚠️ 必须在**普通 Windows 环境**（双击 / 普通终端）里启动。若在受限运行环境
 > （沙箱、高权限管控终端）里启动，Chrome 会因无法创建崩溃收集进程而立刻自杀，
 > 调试端口永远打不开，工作台就会一直显示「浏览器未启动」。
@@ -645,7 +670,9 @@ Chrome 因崩溃收集器起不来而直接退出的问题）：
 2. 状态变为绿色「已授权」即成功；
 3. 回到「创建抓取任务」提交第一个任务。
 
-专用浏览器使用隔离 profile（`backend/storage/chrome-profiles/.boss-zhipin-scraper/chrome-profile`），
+专用浏览器使用隔离 profile（目录名形如
+`backend/storage/chrome-profiles/<profile_hash>`，可调用
+`/api/auth/status` 的 `profile_dir` 字段查到确切路径），
 重启机器后登录态依然保留，也不影响你日常使用的浏览器。用完可执行：
 
 ```bash
@@ -675,7 +702,7 @@ BZP_DATABASE_URL=mysql+aiomysql://boss:password@127.0.0.1:3306/boss_workbench
 ```bash
 docker compose up -d --build
 # 前端：http://localhost:8080
-# 后端文档（仅本机）：http://127.0.0.1:8000/docs
+# 后端文档（仅本机）：http://127.0.0.1:18080/docs
 ```
 
 Compose 会拉起 PostgreSQL 16（并自动执行建表脚本）、后端（含 Chromium 与中文字体）、
@@ -792,6 +819,8 @@ git config core.sshCommand "ssh -i ~/.ssh/id_ed25519_agent -o IdentitiesOnly=yes
 | 提示「触发 BOSS 直聘风控校验」 | 抓取过频。停止 30 分钟以上，并把并发降到 1、间隔调到 8-15 秒 |
 | 任务卡在「进行中」 | 服务被强杀导致状态未收尾；点「系统设置 → 扫描异常任务」或等定时维护（120s）|
 | 前端能打开但接口 404 | 后端未启动或端口不一致，检查 `-ApiTarget` 与浏览器 Network |
+| **每个接口都弹「资源不存在」，页面到处报错** | 这是 Vite **代理打到了别的应用**上：`VITE_API_TARGET` 没生效时配置会退回默认的 `127.0.0.1:8000`，而该端口常被其他服务占用，对未知路径一律返回 404。**注意它看起来极像"后端没启动"，但后端其实是好的**。三步确认：① `Test-NetConnection 127.0.0.1 -Port 18080` 应为 `True`；② 直接访问 `http://127.0.0.1:18080/api/system/health` 应返回 `{"code":0,...}`；③ 检查 `frontend/.env.local` 的 `VITE_API_TARGET`。另外 `vite.config.ts` **必须用 `loadEnv()` 读取**，Vite 不会把 `.env.local` 注入 `process.env`，写成 `process.env.VITE_API_TARGET` 会被静默忽略 |
+| 扫码后「校验登录态」始终显示「登录态无效」 | 启动浏览器用的 `--user-data-dir` 与后端读取的目录不一致。profile 目录名是按 `profile_hash` 生成的（`chrome-profiles/<hash>`），**不要手工拼路径**；用 `scripts\start-boss-browser.ps1`（它会向后端查询），或读 `/api/auth/status` 的 `profile_dir` 字段 |
 | 前端页面卡在"轮询模式" | WebSocket 被反代拦截，检查 Nginx 的 `Upgrade` 头配置 |
 | 容器内无法启动浏览器 | 无图形界面，改在宿主机扫码后挂载 profile 目录 |
 | Windows 控制台日志乱码 | 设置 `PYTHONIOENCODING=utf-8`（启动脚本已自动处理）|

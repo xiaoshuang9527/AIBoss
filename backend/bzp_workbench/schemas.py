@@ -53,6 +53,13 @@ class AuthProfileRead(ORMModel):
     is_default: bool
     created_at: datetime
     updated_at: datetime
+    #: 该档案的 Chrome 隔离 profile 目录（按 profile_hash 命名）。
+    #:
+    #: 为什么要暴露它：浏览器必须用**这个**目录启动，登录态才会被后端读到。
+    #: 早期启动脚本写死了另一个目录名，导致"扫码成功但登录态永远无效"，
+    #: 而且症状极像扫码失败，排查成本很高。把路径交给调用方是根治办法。
+    profile_dir: str = ""
+    profile_hash: str = ""
 
     @classmethod
     def from_orm_profile(cls, profile) -> "AuthProfileRead":
@@ -63,6 +70,12 @@ class AuthProfileRead(ORMModel):
             data.status_label = AuthStatus(profile.status).label
         except ValueError:
             data.status_label = profile.status
+
+        # profile_dir 用后端的推导逻辑算出来，而不是让调用方自己拼路径 ——
+        # 路径规则只在一个地方定义，避免再次出现"两边目录不一致"的问题。
+        if profile.profile_hash:
+            data.profile_hash = profile.profile_hash
+            data.profile_dir = str(settings.profile_dir(profile.profile_hash))
         return data
 
 

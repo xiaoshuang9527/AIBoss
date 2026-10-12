@@ -1,9 +1,15 @@
 ﻿# ============================================================
 # 启动前端开发服务器（Vite）
-# 用法：pwsh -File scripts/start-frontend.ps1 [-ApiTarget http://127.0.0.1:8000]
+# 用法：powershell -ExecutionPolicy Bypass -File scripts\start-frontend.ps1 [-ApiTarget http://127.0.0.1:18080]
+#
+# 关于 -ApiTarget 的默认值
+#   8000 是"约定俗成"的端口，但很容易被别的应用占用。一旦被占用，
+#   Vite 会把 /api 代理到那个应用上并收到 404「资源不存在」——
+#   现象上非常像"后端没启动"或"接口没注册"，排查方向会被完全带偏。
+#   因此这里与后端启动脚本保持一致，默认 18080。
 # ============================================================
 param(
-    [string]$ApiTarget = 'http://127.0.0.1:8000'
+    [string]$ApiTarget = 'http://127.0.0.1:18080'
 )
 
 $ErrorActionPreference = 'Stop'

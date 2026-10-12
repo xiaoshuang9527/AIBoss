@@ -7,8 +7,17 @@
 *.bat text eol=crlf
 *.cmd text eol=crlf
 
-# PowerShell 脚本保持 LF；注意必须带 UTF-8 BOM，
-# 否则 Windows PowerShell 5.1 会按 GBK 解析导致中文乱码、脚本报语法错
+# PowerShell 脚本保持 LF，并且**必须带 UTF-8 BOM**。
+#
+# 为什么强依赖 BOM：Windows PowerShell 5.1 在没有 BOM 时会按系统本地编码
+# （中文 Windows 上是 GBK）解析脚本。含中文注释的脚本会因此被解码错乱，
+# 报出「表达式或语句中包含意外的标记 }」这类莫名其妙的语法错，而且行号
+# 往往指向一段毫无问题的代码 —— 极难排查。
+#
+# 注意：很多编辑器/工具保存时会顺手丢掉 BOM。因此不要只靠"记得保留"，
+# 请运行 `scripts\check-env.ps1`，它会直接校验并指出缺 BOM 的文件。
+# （这里刻意不使用 git filter：filter 需要每台机器各自配置，
+#   漏配时的行为差异是静默的，反而更难发现。）
 *.ps1 text eol=lf
 
 # 二进制文件不做换行转换，也不参与 diff

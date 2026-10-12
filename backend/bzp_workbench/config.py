@@ -39,8 +39,14 @@ class Settings(BaseSettings):
     app_name: str = "智能求职辅助工作台"
     app_version: str = "1.0.0"
     debug: bool = False
-    host: str = "0.0.0.0"
-    port: int = 8000
+    host: str = "127.0.0.1"
+    #: 后端监听端口。
+    #:
+    #: ⚠️ 这里只是记录值，真正决定监听端口的是 uvicorn 的命令行参数
+    #: （scripts/start-backend.ps1 的 -Port，默认 18080）。
+    #: 刻意不用 8000：该端口在很多机器上已被其他应用占用，会让前端代理
+    #: 打到别的服务上并收到 404「资源不存在」，症状酷似"接口没注册"。
+    port: int = 18080
     api_prefix: str = "/api"
     cors_origins: str = "http://localhost:5173,http://127.0.0.1:5173"
 

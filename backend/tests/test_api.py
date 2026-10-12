@@ -309,6 +309,26 @@ class TestAuthEndpoints:
         assert len(profiles) >= 1
         assert profiles[0]["status_label"]
 
+    async def test_profiles_expose_profile_dir(self, client):
+        """必须返回 profile_dir。
+
+        这是一条**回归测试**：浏览器启动脚本需要用它作为 --user-data-dir。
+        早期脚本自己拼了一个写死的路径，与后端实际使用的目录不一致，
+        导致「扫码看起来成功，但校验登录态永远说无效」——症状极像扫码失败。
+        现在路径只由后端推导，脚本向后端查询，两边不可能再分叉。
+        """
+        profiles = (await client.get("/api/auth/profiles")).json()["data"]
+        profile = profiles[0]
+        assert profile["profile_hash"], "profile_hash 必须返回"
+        assert profile["profile_dir"].endswith(profile["profile_hash"]), (
+            "profile_dir 必须以 profile_hash 结尾（后端 settings.profile_dir 的约定）"
+        )
+
+    async def test_status_exposes_profile_dir(self, client):
+        data = (await client.get("/api/auth/status")).json()["data"]
+        assert data["profile"]["profile_dir"]
+        assert data["profile"]["profile_hash"]
+
     async def test_session_current_is_null_when_idle(self, client):
         response = await client.get("/api/auth/sessions/current")
         assert response.status_code == 200

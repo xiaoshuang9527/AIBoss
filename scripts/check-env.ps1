@@ -106,6 +106,50 @@ if (Test-Path $envFile) {
     Write-Check 'WARN' '缺少 backend/.env' '请从 backend/.env.example 复制一份'
 }
 
+# ---------- 端口一致性 ----------
+# 后端端口、frontend/.env.local 的 VITE_API_TARGET、启动脚本默认值
+# 三者必须一致。不一致的典型症状是前端每个接口都返回 404「资源不存在」，
+# 看起来像"后端没启动"，实际是代理打到了别的服务上。
+$envPort = $null
+if (Test-Path $envFile) {
+    $portLine = Select-String -Path $envFile -Pattern '^BZP_PORT=(\d+)$' | Select-Object -First 1
+    if ($portLine) { $envPort = [int]$portLine.Matches[0].Groups[1].Value }
+}
+$targetFile = Join-Path $root 'frontend/.env.local'
+$targetPort = $null
+if (Test-Path $targetFile) {
+    $targetLine = Select-String -Path $targetFile -Pattern 'VITE_API_TARGET=.*:(\d+)' | Select-Object -First 1
+    if ($targetLine) { $targetPort = [int]$targetLine.Matches[0].Groups[1].Value }
+}
+
+if ($envPort -and $targetPort) {
+    if ($envPort -eq $targetPort) {
+        Write-Check 'OK' "后端端口与前端代理一致（$envPort）" 'VITE_API_TARGET 已正确指向后端'
+    } else {
+        Write-Check 'FAIL' "端口不一致：后端 $envPort，前端代理 $targetPort" `
+            '前端所有接口都会 404「资源不存在」。请把 frontend/.env.local 的 VITE_API_TARGET 改成与 BZP_PORT 相同'
+    }
+} elseif ($envPort -and -not $targetPort) {
+    Write-Check 'WARN' '缺少 frontend/.env.local' `
+        "Vite 会退回默认端口，可能与后端 $envPort 不符。请复制 frontend/.env.example 为 .env.local 并填 VITE_API_TARGET"
+}
+
+# ---------- PowerShell 脚本编码 ----------
+# Windows PowerShell 5.1 按系统本地编码（中文 Windows 为 GBK）解析无 BOM 的脚本，
+# 含中文注释的脚本会报出莫名其妙的语法错，且行号指向无关代码。这里主动查出来。
+$missingBom = @()
+Get-ChildItem -Path (Join-Path $root 'scripts') -Filter '*.ps1' | ForEach-Object {
+    $bytes = [System.IO.File]::ReadAllBytes($_.FullName)
+    $hasBom = ($bytes.Length -ge 3 -and $bytes[0] -eq 0xEF -and $bytes[1] -eq 0xBB -and $bytes[2] -eq 0xBF)
+    if (-not $hasBom) { $missingBom += $_.Name }
+}
+if ($missingBom.Count -eq 0) {
+    Write-Check 'OK' 'PowerShell 脚本均带 UTF-8 BOM' '中文注释不会被 GBK 误解析'
+} else {
+    Write-Check 'FAIL' "以下脚本缺少 UTF-8 BOM：$($missingBom -join ', ')" `
+        'Windows PowerShell 5.1 会按 GBK 解析并报语法错。请用「另存为 UTF-8 with BOM」重新保存'
+}
+
 # ---------- 汇总 ----------
 Write-Host "`n=== 自检结果：通过 $ok 项，警告 $warn 项，失败 $bad 项 ===`n" -ForegroundColor Cyan
 if ($bad -gt 0) {
