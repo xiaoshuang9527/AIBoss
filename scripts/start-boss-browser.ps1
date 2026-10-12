@@ -141,19 +141,88 @@ function Get-CdpInfo {
     }
 }
 
+# 判断某个 CDP 实例用的 profile 是不是我们要的那个。
+# /json/version 不报 user-data-dir，所以要从进程命令行里读。
+#
+# 两条路径都试：
+#   1) Get-NetTCPConnection 拿监听进程（最快，但受限环境里该 cmdlet 会失败）
+#   2) 退回到遍历 chrome/msedge 进程，按 --remote-debugging-port 匹配
+# 只用前者的话，某些环境里会静默返回空，导致"看着有实例、却判断不出
+# profile 是否一致"，从而漏掉那个最坑的情况。
+function Get-CdpProfileDir {
+    param([int]$P)
+
+    $commandLines = @()
+
+    try {
+        $conn = Get-NetTCPConnection -LocalPort $P -State Listen -ErrorAction Stop |
+            Select-Object -First 1
+        if ($conn) {
+            $proc = Get-CimInstance Win32_Process -Filter "ProcessId=$($conn.OwningProcess)" -ErrorAction SilentlyContinue
+            if ($proc -and $proc.CommandLine) { $commandLines += $proc.CommandLine }
+        }
+    } catch {
+        # 受限环境里 Get-NetTCPConnection 不可用，走下面的回退路径
+    }
+
+    if ($commandLines.Count -eq 0) {
+        try {
+            $commandLines = @(Get-CimInstance Win32_Process -Filter "Name='chrome.exe' OR Name='msedge.exe'" -ErrorAction Stop |
+                Where-Object { $_.CommandLine -and $_.CommandLine -match "--remote-debugging-port=$P(\s|$)" } |
+                ForEach-Object { $_.CommandLine })
+        } catch {
+            return $null
+        }
+    }
+
+    foreach ($line in $commandLines) {
+        $m = [regex]::Match($line, '--user-data-dir=(?:"([^"]+)"|([^\s]+))')
+        if ($m.Success) {
+            $value = if ($m.Groups[1].Success) { $m.Groups[1].Value } else { $m.Groups[2].Value }
+            return $value.TrimEnd('"')
+        }
+    }
+    return $null
+}
+
 if (Test-CdpPort -P $Port) {
     $info = Get-CdpInfo -P $Port
     if ($info) {
-        Write-Warn2 "端口 $Port 已经有一个可用的 CDP 实例在跑：$($info.Browser)"
-        Write-Host "      直接用它即可 —— 回到工作台点「校验登录态」。" -ForegroundColor Gray
-        Read-Host "按回车键退出"
-        exit 0
-    }
-    Write-Warn2 "端口 $Port 被其他程序占用，且不是 Chrome 调试端口。"
-    if (-not $Force) {
-        Write-Host "      请换一个端口（例如 -Port 9333），或在系统设置里把 CDP 端口改成同一个值。" -ForegroundColor Gray
-        Read-Host "按回车键退出"
-        exit 1
+        $runningDir = Get-CdpProfileDir -P $Port
+        # 已经有一个 CDP 实例 —— 但要确认它用的是不是后端认的那个 profile。
+        # 如果用一个"看起来对但其实是旧路径"的实例，登录态会存到别处，
+        # 表现为「扫码成功但校验登录态永远无效」，非常难查。所以这里主动纠正。
+        $sameDir = $false
+        if ($runningDir) {
+            try {
+                $sameDir = ([System.IO.Path]::GetFullPath($runningDir).TrimEnd('\') -ieq
+                            [System.IO.Path]::GetFullPath($profileDir).TrimEnd('\'))
+            } catch { $sameDir = $false }
+        }
+
+        if ($sameDir) {
+            Write-Ok "端口 $Port 已有 CDP 实例，且 profile 与后端一致：$($info.Browser)"
+            Write-Host "      直接用即可 —— 回到工作台点「校验登录态」。" -ForegroundColor Gray
+            Read-Host "按回车键退出"
+            exit 0
+        }
+
+        Write-Warn2 "端口 $Port 上的 CDP 实例用的 profile 与后端不一致："
+        Write-Host "        实际: $runningDir" -ForegroundColor Gray
+        Write-Host "        应为: $profileDir" -ForegroundColor Gray
+        Write-Host "      这个不一致会导致「扫码成功但登录态一直显示无效」。" -ForegroundColor Yellow
+        Write-Host "      将关闭该实例并用正确 profile 重启..." -ForegroundColor Yellow
+        Get-CimInstance Win32_Process -Filter "Name='chrome.exe' OR Name='msedge.exe'" |
+            Where-Object { $_.CommandLine -and $_.CommandLine -match [regex]::Escape("--user-data-dir=$runningDir") } |
+            ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }
+        Start-Sleep -Seconds 3
+    } else {
+        Write-Warn2 "端口 $Port 被其他程序占用，且不是 Chrome 调试端口。"
+        if (-not $Force) {
+            Write-Host "      请换一个端口（例如 -Port 9333），或在系统设置里把 CDP 端口改成同一个值。" -ForegroundColor Gray
+            Read-Host "按回车键退出"
+            exit 1
+        }
     }
 }
 
