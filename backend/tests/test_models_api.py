@@ -24,10 +24,18 @@ from bzp_workbench.services.llm import (
     supported_providers,
 )
 from bzp_workbench.services.llm.adapters.openai_compat import (
+    _extract_usage,
+    _get_extra_field,
     build_openai_messages,
     build_openai_tools,
 )
-from bzp_workbench.services.llm.base import ImagePart, ToolCall, ToolDefinition
+from bzp_workbench.services.llm.base import (
+    ImagePart,
+    StreamChunk,
+    StreamEventType,
+    ToolCall,
+    ToolDefinition,
+)
 from bzp_workbench.services.llm.crypto import (
     ApiKeyDecryptError,
     decrypt_api_key,
@@ -338,6 +346,100 @@ class TestErrorClassification:
     def test_wrap_is_idempotent(self):
         original = LLMError(LLMErrorType.AUTH_FAILED, "x")
         assert wrap_exception(original) is original
+
+
+# ============================================================
+# 推理模型的两路输出（真实踩过的坑）
+# ============================================================
+class _FakeObject:
+    """模拟 OpenAI SDK 返回的对象：非标准字段落在 model_extra 里。"""
+
+    def __init__(self, **fields):
+        declared = {"content", "reasoning_content"}
+        for key, value in fields.items():
+            if key in declared:
+                object.__setattr__(self, key, value)
+            else:
+                extra = getattr(self, "model_extra", None) or {}
+                extra[key] = value
+                object.__setattr__(self, "model_extra", extra)
+
+
+class TestReasoningModelOutput:
+    """DeepSeek V4.1 Flash 是推理模型，输出分两路：
+
+    * ``reasoning_content`` —— 思考过程（推理阶段**只有这一路有内容**）
+    * ``content`` —— 正式回答
+
+    如果适配器只读 ``content``，对话界面在思考阶段会长时间空白，
+    用户会以为卡死。这是真机验证时发现的问题，必须有回归测试守住。
+    """
+
+    def test_reads_reasoning_content_from_attribute(self):
+        obj = _FakeObject(reasoning_content="思考中", content=None)
+        assert _get_extra_field(obj, "reasoning_content") == "思考中"
+
+    def test_reads_reasoning_from_model_extra(self):
+        """中转服务可能把字段放在 model_extra 或换个名字。"""
+        obj = _FakeObject(reasoning="兜底字段")
+        assert _get_extra_field(obj, "reasoning") == "兜底字段"
+
+    def test_missing_field_returns_empty_string(self):
+        assert _get_extra_field(_FakeObject(content="hi"), "reasoning_content") == ""
+        assert _get_extra_field(None, "reasoning_content") == ""
+
+    def test_stream_event_types_cover_both_paths(self):
+        """stream_chat 必须把两路分别成流，界面上才能折叠展示思考过程。"""
+        assert StreamEventType.REASONING.value == "reasoning"
+        assert StreamEventType.TEXT.value == "text"
+        # 两者是不同的类型，上层可据此分流到不同 UI 区域
+        assert StreamEventType.REASONING is not StreamEventType.TEXT
+
+    def test_stream_chunk_carries_reasoning_text(self):
+        chunk = StreamChunk(type=StreamEventType.REASONING, text="思路")
+        assert chunk.text == "思路"
+        assert chunk.type is StreamEventType.REASONING
+
+    def test_response_keeps_reasoning_separate_from_text(self):
+        from bzp_workbench.services.llm.base import LLMResponse
+
+        response = LLMResponse(text="1、2、3", reasoning="用户在让我数数")
+        assert response.text == "1、2、3"
+        assert response.reasoning == "用户在让我数数"
+        assert response.text != response.reasoning
+
+    def test_usage_extraction_handles_cached_tokens(self):
+        """缓存命中的 token 单价更低，需要单独统计。"""
+
+        class _Usage:
+            prompt_tokens = 346
+            completion_tokens = 76
+            prompt_tokens_details = type("D", (), {"cached_tokens": 320})()
+
+        class _Response:
+            usage = _Usage()
+
+        usage = _extract_usage(_Response())
+        assert usage.prompt_tokens == 346
+        assert usage.completion_tokens == 76
+        assert usage.cached_tokens == 320
+        assert usage.total_tokens == 422
+
+    def test_usage_extraction_handles_deepseek_field_name(self):
+        """DeepSeek 用 prompt_cache_hit_tokens 表示缓存命中。"""
+
+        class _Usage:
+            prompt_tokens = 100
+            completion_tokens = 20
+            prompt_cache_hit_tokens = 64
+
+        class _Response:
+            usage = _Usage()
+
+        assert _extract_usage(_Response()).cached_tokens == 64
+
+    def test_usage_extraction_is_safe_when_absent(self):
+        assert _extract_usage(object()).total_tokens == 0
 
 
 # ============================================================

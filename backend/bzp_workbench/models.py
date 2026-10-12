@@ -335,3 +335,161 @@ class ModelConfig(Base):
             f"<ModelConfig id={self.id} {self.display_name!r} "
             f"provider={self.provider} model={self.model_id}>"
         )
+
+
+# ============================================================
+# AI 对话模块
+# ============================================================
+
+
+class ChatConversation(Base):
+    """一个对话会话。
+
+    设计要点
+    --------
+    * ``mode`` 记录当前意图模式（``job_hunting`` / ``interview_coach`` /
+      ``chat``），由 AI 自动识别、用户可手动覆盖。
+    * ``slot_state`` 是**服务端维护的槽位台账**（JSON）。多轮对话里模型经常
+      "忘记"已经收集过哪些条件，把进度放在服务端并每轮注入 prompt，
+      比指望模型自己记住可靠得多，也能显著减少重复提问。
+    * ``model_config_id`` 记录本会话选用的模型，为空时回退到全局默认模型。
+    """
+
+    __tablename__ = "chat_conversations"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    title: Mapped[str] = mapped_column(String(128), nullable=False, default="新对话")
+    mode: Mapped[str] = mapped_column(String(32), nullable=False, default="chat", index=True)
+
+    #: 槽位台账：{"keyword": "Python", "city": "深圳", ...}
+    slot_state: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+    model_config_id: Mapped[int | None] = mapped_column(
+        ForeignKey("model_configs.id", ondelete="SET NULL"), nullable=True, index=True
+    )
+
+    message_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    #: 累计 token，便于观察成本（不是计费功能，仅供自用监控）
+    total_tokens: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+
+    created_at: Mapped[datetime] = _now_column()
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False
+    )
+    last_message_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+    messages: Mapped[list["ChatMessage"]] = relationship(
+        back_populates="conversation",
+        cascade="all, delete-orphan",
+        passive_deletes=True,
+    )
+
+    __table_args__ = (Index("ix_chat_conversations_updated", "updated_at"),)
+
+    def __repr__(self) -> str:  # pragma: no cover
+        return f"<ChatConversation id={self.id} {self.title!r} mode={self.mode}>"
+
+
+class ChatMessage(Base):
+    """一条对话消息。
+
+    ``content_json`` 承载**结构化载荷**，前端按 ``content_type`` 分别渲染：
+
+    * ``text``            —— 普通文本（``content`` 里是 markdown）
+    * ``job_cards``       —— 岗位卡片列表（供「去 BOSS 沟通」按钮使用）
+    * ``match_report``    —— 匹配度诊断报告
+    * ``interview_set``   —— STAR 面试题集合
+    * ``system_notice``   —— 系统通知（如抓取完成回推）
+
+    这样设计的原因：AI 的输出不总是纯文本，工具结果需要专门的 UI，
+    如果全部塞进 markdown，前端就没法渲染出可点击的岗位卡片。
+    """
+
+    __tablename__ = "chat_messages"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    conversation_id: Mapped[int] = mapped_column(
+        ForeignKey("chat_conversations.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+
+    #: system / user / assistant / tool
+    role: Mapped[str] = mapped_column(String(16), nullable=False, index=True)
+    content: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+    content_type: Mapped[str] = mapped_column(String(32), nullable=False, default="text")
+    content_json: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+    #: 推理模型的思考过程（DeepSeek 的 reasoning_content）
+    reasoning: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+    #: 引用到的附件 id 列表（JSON）
+    attachments_json: Mapped[str | None] = mapped_column(Text, nullable=True)
+    #: 工具调用记录（JSON 数组），便于回溯 AI 做过什么
+    tool_calls_json: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+    #: 本消息消耗的 token（prompt 存一次即可，避免重复计）
+    prompt_tokens: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    completion_tokens: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    cached_tokens: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    latency_ms: Mapped[int | None] = mapped_column(Integer, nullable=True)
+
+    #: 失败时的错误分类与提示（复用 llm/errors.py 的分类）
+    error_type: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+    #: 生成该消息所用的模型（便于对比不同模型的表现）
+    model_config_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    model_label: Mapped[str | None] = mapped_column(String(128), nullable=True)
+
+    created_at: Mapped[datetime] = _now_column()
+
+    conversation: Mapped[ChatConversation] = relationship(back_populates="messages")
+    attachments: Mapped[list["ChatAttachment"]] = relationship(
+        back_populates="message",
+        cascade="all, delete-orphan",
+        passive_deletes=True,
+    )
+
+    __table_args__ = (Index("ix_chat_messages_conv_created", "conversation_id", "created_at"),)
+
+    def __repr__(self) -> str:  # pragma: no cover
+        return f"<ChatMessage id={self.id} role={self.role} type={self.content_type}>"
+
+
+class ChatAttachment(Base):
+    """上传的附件（简历截图 / PDF / Word）。
+
+    ``extracted_text`` 缓存抽取结果 —— 这一步是**必需**而非优化：
+    DeepSeek 接口规定图片只能出现在 ``user`` 消息里，若每轮都把原图重新
+    塞进请求，多轮对话的请求体会迅速膨胀。因此在首次上传时就抽取成文本
+    并缓存，后续轮次只发文本。
+    """
+
+    __tablename__ = "chat_attachments"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    conversation_id: Mapped[int] = mapped_column(
+        ForeignKey("chat_conversations.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    message_id: Mapped[int | None] = mapped_column(
+        ForeignKey("chat_messages.id", ondelete="CASCADE"), nullable=True, index=True
+    )
+
+    #: image / pdf / docx / text
+    kind: Mapped[str] = mapped_column(String(16), nullable=False, index=True)
+    filename: Mapped[str] = mapped_column(String(255), nullable=False)
+    stored_path: Mapped[str] = mapped_column(String(512), nullable=False)
+    mime_type: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    size_bytes: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+
+    #: 文本抽取状态：pending / done / failed / not_applicable
+    extract_status: Mapped[str] = mapped_column(String(16), nullable=False, default="pending")
+    extracted_text: Mapped[str | None] = mapped_column(Text, nullable=True)
+    extract_error: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+    created_at: Mapped[datetime] = _now_column()
+
+    message: Mapped[ChatMessage | None] = relationship(back_populates="attachments")
+
+    def __repr__(self) -> str:  # pragma: no cover
+        return f"<ChatAttachment id={self.id} {self.kind} {self.filename!r}>"

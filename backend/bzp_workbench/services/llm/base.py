@@ -125,6 +125,9 @@ class LLMResponse:
     """一次完整（非流式）调用的结果。"""
 
     text: str = ""
+    #: 推理模型的思考过程（DeepSeek 的 ``reasoning_content``）。
+    #: 与 :attr:`text` 分开保存，便于界面折叠展示"思考中/已深度思考"。
+    reasoning: str = ""
     tool_calls: list[ToolCall] = field(default_factory=list)
     finish_reason: str = "stop"
     usage: TokenUsage = field(default_factory=TokenUsage)
@@ -140,6 +143,7 @@ class StreamEventType(str, Enum):
     """流式事件的类型。上层按类型分发到前端 SSE。"""
 
     TEXT = "text"                 # 正文增量
+    REASONING = "reasoning"       # 思考过程增量（推理模型）
     TOOL_CALL = "tool_call"       # 工具调用（增量或完整）
     USAGE = "usage"               # 用量统计（通常在末尾）
     DONE = "done"                 # 结束

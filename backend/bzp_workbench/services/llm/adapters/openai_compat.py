@@ -130,6 +130,25 @@ def _extract_usage(raw: Any) -> TokenUsage:
     )
 
 
+def _get_extra_field(obj: Any, name: str) -> str:
+    """读取供应商的非标准字段。
+
+    ``reasoning_content`` 是 DeepSeek 的扩展；不同中转服务可能叫
+    ``reasoning`` 或塞进 ``model_extra``，这里统一兜一层。
+    """
+    if obj is None:
+        return ""
+    value = getattr(obj, name, None)
+    if value:
+        return str(value)
+    extra = getattr(obj, "model_extra", None)
+    if isinstance(extra, dict):
+        fallback = extra.get(name)
+        if fallback:
+            return str(fallback)
+    return ""
+
+
 def _parse_tool_calls(raw_calls: Any) -> list[ToolCall]:
     """解析非流式响应里的 tool_calls。"""
     result: list[ToolCall] = []
@@ -240,8 +259,18 @@ class OpenAICompatAdapter(LLMAdapter):
             )
 
         message = getattr(choice, "message", None)
+        # 推理模型（如 DeepSeek V4.1 Flash）会把思考过程放在 reasoning_content，
+        # 正文放在 content。两者都要取，否则界面上会出现"只有思考没有回答"。
+        reasoning = ""
+        if message is not None:
+            reasoning = (
+                getattr(message, "reasoning_content", None)
+                or _get_extra_field(message, "reasoning")
+                or ""
+            )
         return LLMResponse(
             text=(getattr(message, "content", None) or "") if message else "",
+            reasoning=reasoning,
             tool_calls=_parse_tool_calls(getattr(message, "tool_calls", None)),
             finish_reason=getattr(choice, "finish_reason", None) or "stop",
             usage=_extract_usage(response),
@@ -291,6 +320,14 @@ class OpenAICompatAdapter(LLMAdapter):
                 text = getattr(delta, "content", None)
                 if text:
                     yield StreamChunk(type=StreamEventType.TEXT, text=text)
+
+                # 推理模型的思考过程单独成流：界面上应折叠展示，
+                # 否则正文开始前用户会面对一段时间的空屏。
+                reasoning = _get_extra_field(delta, "reasoning_content") or _get_extra_field(
+                    delta, "reasoning"
+                )
+                if reasoning:
+                    yield StreamChunk(type=StreamEventType.REASONING, text=reasoning)
 
                 for call in getattr(delta, "tool_calls", None) or []:
                     index = getattr(call, "index", 0) or 0

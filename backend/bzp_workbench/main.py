@@ -20,6 +20,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 from .api import auth as auth_router
+from .api import chat as chat_router
 from .api import export as export_router
 from .api import jobs as jobs_router
 from .api import models as models_router
@@ -143,6 +144,7 @@ def create_app() -> FastAPI:
     prefix = settings.api_prefix
     application.include_router(system_router.router, prefix=prefix)
     application.include_router(models_router.router, prefix=prefix)
+    application.include_router(chat_router.router, prefix=prefix)
     application.include_router(auth_router.router, prefix=prefix)
     application.include_router(tasks_router.router, prefix=prefix)
     application.include_router(jobs_router.router, prefix=prefix)

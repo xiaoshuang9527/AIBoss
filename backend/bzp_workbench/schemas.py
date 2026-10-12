@@ -6,7 +6,7 @@ import json
 from datetime import datetime
 from typing import Any, Generic, Literal, TypeVar
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from .config import settings
 
@@ -577,6 +577,132 @@ class ModelProvidersResponse(BaseModel):
 
     providers: list[ProviderMetadata] = Field(default_factory=list)
     capabilities: list[CapabilityOption] = Field(default_factory=list)
+
+
+# ============================================================
+# AI 对话
+# ============================================================
+class ChatConversationRead(ORMModel):
+    id: int
+    title: str
+    mode: str
+    model_config_id: int | None = None
+    message_count: int = 0
+    total_tokens: int = 0
+    created_at: datetime
+    updated_at: datetime
+    last_message_at: datetime | None = None
+
+
+class ChatMessageRead(ORMModel):
+    """一条对话消息。
+
+    ``content_json`` 与 ``tool_calls_json`` 在库中是字符串，这里解析成对象，
+    前端可以直接按 ``content_type`` 渲染结构化载荷（岗位卡片 / 诊断报告等）。
+    """
+
+    id: int
+    conversation_id: int
+    role: str
+    content: str | None = None
+    content_type: str = "text"
+    content_data: Any = None
+    reasoning: str | None = None
+    attachments: list[int] = Field(default_factory=list)
+    tool_calls: list[Any] = Field(default_factory=list)
+    prompt_tokens: int = 0
+    completion_tokens: int = 0
+    cached_tokens: int = 0
+    latency_ms: int | None = None
+    error_type: str | None = None
+    error_message: str | None = None
+    model_config_id: int | None = None
+    model_label: str | None = None
+    created_at: datetime
+
+    @model_validator(mode="before")
+    @classmethod
+    def _unpack_json_columns(cls, value: Any) -> Any:
+        """把 ORM 对象上的 JSON 字符串列拆成结构化字段。
+
+        放在 schema 层做而不是在每个路由里重复处理，避免遗漏。
+        """
+        if isinstance(value, dict):
+            return value
+
+        raw_content_json = getattr(value, "content_json", None)
+        raw_attachments = getattr(value, "attachments_json", None)
+        raw_tools = getattr(value, "tool_calls_json", None)
+
+        def _loads(raw, default):
+            if not raw:
+                return default
+            try:
+                parsed = json.loads(raw)
+            except (ValueError, TypeError):
+                return default
+            return parsed
+
+        return {
+            "id": value.id,
+            "conversation_id": value.conversation_id,
+            "role": value.role,
+            "content": value.content,
+            "content_type": value.content_type,
+            "content_data": _loads(raw_content_json, None),
+            "reasoning": value.reasoning,
+            "attachments": _loads(raw_attachments, []),
+            "tool_calls": _loads(raw_tools, []),
+            "prompt_tokens": value.prompt_tokens,
+            "completion_tokens": value.completion_tokens,
+            "cached_tokens": value.cached_tokens,
+            "latency_ms": value.latency_ms,
+            "error_type": value.error_type,
+            "error_message": value.error_message,
+            "model_config_id": value.model_config_id,
+            "model_label": value.model_label,
+            "created_at": value.created_at,
+        }
+
+
+class ChatAttachmentRead(ORMModel):
+    """附件元数据。
+
+    ``extracted_text`` 默认不返回（可能在几万字符量级），
+    需要时通过 ``/api/chat/attachments/{id}`` 单独取。
+    """
+
+    id: int
+    conversation_id: int
+    message_id: int | None = None
+    kind: str
+    filename: str
+    mime_type: str | None = None
+    size_bytes: int = 0
+    size_label: str = ""
+    extract_status: str = "pending"
+    extract_error: str | None = None
+    extracted_text: str | None = None
+    created_at: datetime
+
+
+class ChatSendRequest(BaseModel):
+    """发送消息。"""
+
+    content: str = Field(default="", max_length=20000)
+    attachment_ids: list[int] = Field(default_factory=list)
+    #: 本次发送临时指定模型（不传则沿用会话设置或全局默认）
+    model_config_id: int | None = None
+
+
+class ChatConfigRead(BaseModel):
+    max_image_bytes: int
+    max_doc_bytes: int
+    max_attachments: int
+    fake_llm: bool
+    max_image_label: str
+    max_doc_label: str
+    accepted: str
 
 
 class QueueStatus(BaseModel):

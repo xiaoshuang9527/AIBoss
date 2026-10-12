@@ -12,6 +12,12 @@ const routes: RouteRecordRaw[] = [
     meta: { title: '工作台', icon: 'Odometer' },
   },
   {
+    path: '/chat',
+    name: 'chat',
+    component: () => import('@/views/ChatView.vue'),
+    meta: { title: 'AI 对话', icon: 'ChatDotRound' },
+  },
+  {
     path: '/auth',
     name: 'auth',
     component: () => import('@/views/AuthView.vue'),

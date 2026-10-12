@@ -76,6 +76,17 @@ class Settings(BaseSettings):
         "严禁用于商业倒卖或大规模抓取。请务必控制抓取频率，遵守目标网站用户协议。"
     )
 
+    # ---------- AI 对话 ----------
+    #: 用假模型 echo 驱动对话（不访问真实 API）。
+    #: 本地开发默认开启，方便在不消耗额度的前提下调试前端交互；生产必须关闭。
+    fake_llm: bool = True
+    #: 单次回复的最大输出 token
+    chat_max_tokens: int = 2048
+    #: 单个附件的大小上限（与前端校验保持一致）
+    chat_max_image_bytes: int = 8 * 1024 * 1024
+    chat_max_doc_bytes: int = 20 * 1024 * 1024
+    chat_max_attachments: int = 5
+
     # ---------- 安全 ----------
     secret_key: str = Field(default_factory=lambda: secrets.token_urlsafe(32))
 
