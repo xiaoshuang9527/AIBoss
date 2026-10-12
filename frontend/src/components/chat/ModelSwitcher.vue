@@ -55,13 +55,24 @@ function capsOf(item: ModelConfig): string[] {
       placeholder="选择模型"
       size="default"
       class="switcher__select"
+      popper-class="model-switcher-popper"
+      :fit-input-width="false"
       @update:model-value="onChange"
     >
       <el-option v-for="item in models" :key="item.id" :label="item.display_name" :value="item.id">
         <div class="switcher__option">
-          <div class="switcher__option-main">
-            <span class="switcher__option-name">{{ item.display_name }}</span>
-            <el-tag v-if="item.is_default" type="primary" size="small" effect="dark" round>
+          <div class="switcher__row">
+            <span class="switcher__option-name" :title="item.display_name">
+              {{ item.display_name }}
+            </span>
+            <el-tag
+              v-if="item.is_default"
+              type="primary"
+              size="small"
+              effect="dark"
+              round
+              class="switcher__badge"
+            >
               默认
             </el-tag>
             <span
@@ -72,17 +83,18 @@ function capsOf(item: ModelConfig): string[] {
               {{ latencyInfo(item)?.text }}
             </span>
           </div>
-          <div class="switcher__option-sub">
+          <div class="switcher__row switcher__row--sub">
             <el-tag
               v-for="cap in capsOf(item)"
               :key="cap"
               size="small"
               effect="plain"
               type="info"
+              class="switcher__cap"
             >
               {{ cap }}
             </el-tag>
-            <span class="bzp-muted switcher__option-id">{{ item.model_id }}</span>
+            <span class="switcher__option-id">{{ item.model_id }}</span>
           </div>
         </div>
       </el-option>
@@ -130,30 +142,50 @@ function capsOf(item: ModelConfig): string[] {
 .switcher__option {
   display: flex;
   flex-direction: column;
-  gap: 3px;
-  padding: 3px 0;
-  line-height: 1.4;
+  gap: 2px;
+  padding: 2px 0;
+  line-height: 1.35;
+  min-width: 0;
 }
 
-.switcher__option-main {
+.switcher__row {
   display: flex;
   align-items: center;
   gap: 6px;
+  min-width: 0;
 }
 
-.switcher__option-name {
-  font-weight: 500;
-}
-
-.switcher__option-sub {
-  display: flex;
-  align-items: center;
+.switcher__row--sub {
   gap: 4px;
   flex-wrap: wrap;
 }
 
+.switcher__option-name {
+  font-weight: 500;
+  /* 长模型名截断，而不是把右侧的延迟标签挤出去 */
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.switcher__badge,
+.switcher__latency {
+  flex-shrink: 0;
+}
+
+.switcher__cap {
+  flex-shrink: 0;
+}
+
 .switcher__option-id {
   font-size: 11px;
+  color: var(--bzp-text-secondary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
 }
 
 .switcher__latency {
@@ -185,5 +217,44 @@ function capsOf(item: ModelConfig): string[] {
   align-items: center;
   gap: 4px;
   color: var(--bzp-warning);
+}
+</style>
+
+<!--
+  下拉面板样式必须**不加 scoped**。
+
+  Element Plus 的 select 下拉是 teleport 到 body 的，scoped 样式带的
+  data-v 属性根本作用不到那里，所以 .switcher__option 之前完全没生效，
+  选项被默认行高裁剪成一行 —— 这正是"能力标签显示不出来"的原因。
+
+  另一个关键点：Element Plus 给 .el-select-dropdown__item 设了
+  height: 34px，多行内容会被裁掉，必须显式覆盖成 auto。
+-->
+<style>
+.model-switcher-popper .el-select-dropdown__list {
+  padding: 4px;
+}
+
+/* 下拉开得比输入框宽一些：两行内容（名称 + 能力标签 + 模型 ID）
+   挤在 248px 里会频繁换行，反而更难读。 */
+.model-switcher-popper {
+  min-width: 320px !important;
+}
+
+.model-switcher-popper .el-select-dropdown__item {
+  /* 让选项能放下两行（名称行 + 能力行） */
+  height: auto;
+  line-height: 1.35;
+  padding: 8px 10px;
+  border-radius: 7px;
+  margin-bottom: 2px;
+}
+
+.model-switcher-popper .el-select-dropdown__item:last-child {
+  margin-bottom: 0;
+}
+
+.model-switcher-popper .el-select-dropdown__item.is-selected {
+  font-weight: 500;
 }
 </style>
