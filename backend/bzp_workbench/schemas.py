@@ -693,6 +693,17 @@ class ChatSendRequest(BaseModel):
     attachment_ids: list[int] = Field(default_factory=list)
     #: 本次发送临时指定模型（不传则沿用会话设置或全局默认）
     model_config_id: int | None = None
+    #: 显式指定意图模式。传了就跳过自动路由 —— 用于用户手动纠正模式判断。
+    #: 留空（None）表示走自动路由；传 "auto" 表示清空模式重新自动判断。
+    mode: str | None = None
+
+
+class ChatModeUpdate(BaseModel):
+    """手动切换会话的意图模式。"""
+
+    mode: str = Field(description="job_hunting / interview_coach / chat / auto")
+    #: 是否清空槽位台账（换话题时应该清，否则会带着上一个话题的条件）
+    reset_slots: bool = True
 
 
 class ChatConfigRead(BaseModel):

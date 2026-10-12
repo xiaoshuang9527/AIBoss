@@ -78,8 +78,10 @@ class Settings(BaseSettings):
 
     # ---------- AI 对话 ----------
     #: 用假模型 echo 驱动对话（不访问真实 API）。
-    #: 本地开发默认开启，方便在不消耗额度的前提下调试前端交互；生产必须关闭。
-    fake_llm: bool = True
+    #:
+    #: 生产默认关闭（走真实模型）。测试环境在 conftest 里显式设为 true ——
+    #: 否则测试会真的调用外部 API，既慢又不确定。
+    fake_llm: bool = False
     #: 单次回复的最大输出 token
     chat_max_tokens: int = 2048
     #: 单个附件的大小上限（与前端校验保持一致）

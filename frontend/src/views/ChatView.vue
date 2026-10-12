@@ -13,7 +13,7 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import MessageBubble from '@/components/chat/MessageBubble.vue'
 import Composer from '@/components/chat/Composer.vue'
 import ModelSwitcher from '@/components/chat/ModelSwitcher.vue'
-import { useChatStore } from '@/stores/chat'
+import { useChatStore, MODE_OPTIONS } from '@/stores/chat'
 import type { ChatAttachment } from '@/types/chat'
 
 const store = useChatStore()
@@ -27,6 +27,27 @@ const currentTitle = computed(() => store.currentConversation?.title ?? '新对�
 
 /** 假模型模式提示 */
 const fakeMode = computed(() => store.config?.fake_llm === true)
+
+/** 当前模式（unset 显示为「自动判断」） */
+const currentMode = computed(() => store.currentConversation?.mode ?? 'unset')
+
+const modeLabel = computed(() => {
+  const found = MODE_OPTIONS.find((item) => item.value === currentMode.value)
+  if (found) return found.label
+  // 已路由成具体模式时，currentMode 是 job_hunting 等，去 MODE_OPTIONS 里也找得到
+  return currentMode.value
+})
+
+const modeTone = computed(() => {
+  switch (currentMode.value) {
+    case 'job_hunting':
+      return 'primary'
+    case 'interview_coach':
+      return 'warning'
+    default:
+      return 'info'
+  }
+})
 
 /** 消息列表 + 流式中的临时消息合并渲染 */
 const renderedMessages = computed(() => store.messages)
@@ -208,8 +229,37 @@ function timeLabel(value: string | null): string {
       <header class="chat__header">
         <div class="chat__header-left">
           <div class="chat__title">{{ currentTitle }}</div>
+
+          <!-- 模式指示 + 手动切换：惰性路由在话题跳转时不会重判，
+               所以必须给用户一个纠正入口 -->
+          <el-dropdown
+            v-if="store.currentId"
+            trigger="click"
+            @command="(value: string) => store.switchMode(value)"
+          >
+            <el-tag :type="modeTone" size="small" effect="light" round class="chat__mode-tag">
+              <el-icon><component :is="currentMode === 'interview_coach' ? 'Notebook' : 'Compass'" /></el-icon>
+              {{ modeLabel }}
+              <el-icon class="chat__mode-arrow"><ArrowDown /></el-icon>
+            </el-tag>
+            <template #dropdown>
+              <el-dropdown-menu>
+                <el-dropdown-item
+                  v-for="option in MODE_OPTIONS"
+                  :key="option.value"
+                  :command="option.value"
+                >
+                  <div class="chat__mode-option">
+                    <span class="chat__mode-option-label">{{ option.label }}</span>
+                    <span class="chat__mode-option-desc">{{ option.description }}</span>
+                  </div>
+                </el-dropdown-item>
+              </el-dropdown-menu>
+            </template>
+          </el-dropdown>
+
           <el-tag v-if="fakeMode" type="warning" size="small" effect="light" round>
-            假模型 echo · 骨架验证模式
+            假模型 echo
           </el-tag>
         </div>
 
@@ -402,6 +452,34 @@ function timeLabel(value: string | null): string {
   text-overflow: ellipsis;
   white-space: nowrap;
   max-width: 320px;
+}
+
+.chat__mode-tag {
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.chat__mode-arrow {
+  font-size: 10px;
+  opacity: 0.7;
+}
+
+.chat__mode-option {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  line-height: 1.4;
+}
+
+.chat__mode-option-label {
+  font-weight: 500;
+}
+
+.chat__mode-option-desc {
+  font-size: 11px;
+  color: var(--bzp-text-secondary);
 }
 
 .chat__banner {

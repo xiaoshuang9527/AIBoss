@@ -30,7 +30,8 @@ from ..schemas import (
 )
 from ..services import ai
 from ..services.ai import service as chat_service
-from ..services.logging_service import log_event
+from ..services.ai.router import MODES, UNSET_MODE
+from ..services.logging_service import log_event, logger
 from .helpers import ok
 
 router = APIRouter(prefix="/chat", tags=["AI 对话"])
@@ -118,8 +119,15 @@ async def update_conversation(
     db: AsyncSession = Depends(get_db),
     title: str | None = Form(None),
     model_config_id: int | None = Form(None),
+    mode: str | None = Form(None),
+    reset_slots: bool = Form(False),
 ):
-    """更新会话标题或切换所用模型（模型选择下拉框用这个接口）。"""
+    """更新会话标题、所用模型或意图模式。
+
+    ``mode`` 支持 ``auto``：清空模式让下一轮重新自动判断。
+    换话题时配合 ``reset_slots=true`` 一起用 —— 否则槽位台账里会残留
+    上一个话题的条件（比如换了城市还带着旧城市）。
+    """
     conversation = await chat_service.get_conversation(db, conversation_id)
     if conversation is None:
         raise HTTPException(status_code=404, detail="会话不存在")
@@ -128,6 +136,18 @@ async def update_conversation(
         conversation.title = title.strip()[:128] or conversation.title
     if model_config_id is not None:
         conversation.model_config_id = model_config_id
+    if mode is not None:
+        if mode == "auto":
+            conversation.mode = UNSET_MODE
+        elif mode in MODES:
+            conversation.mode = mode
+        else:
+            raise HTTPException(
+                status_code=422,
+                detail=f"不支持的模式：{mode}（可选 {'、'.join(MODES)} 或 auto）",
+            )
+    if reset_slots:
+        conversation.slot_state = json.dumps({}, ensure_ascii=False)
 
     await db.commit()
     await db.refresh(conversation)
@@ -275,6 +295,23 @@ async def send_message(
         await db.commit()
         await db.refresh(conversation)
 
+    # 模式：显式指定则跳过自动路由；"auto" 表示重新自动判断
+    forced_mode: str | None = None
+    if payload.mode == "auto":
+        conversation.mode = UNSET_MODE
+        await db.commit()
+        await db.refresh(conversation)
+    elif payload.mode in MODES:
+        forced_mode = payload.mode
+
+    logger.info(
+        "[API] 会话=%s 收到 mode 参数=%r -> forced_mode=%r 当前 mode=%r",
+        conversation_id,
+        payload.mode,
+        forced_mode,
+        conversation.mode,
+    )
+
     await chat_service.persist_user_message(
         db, conversation, text=text, attachment_ids=attachment_ids
     )
@@ -283,7 +320,11 @@ async def send_message(
     await db.refresh(conversation)
 
     generator = chat_service.stream_reply(
-        db, conversation, user_text=text, attachment_ids=attachment_ids
+        db,
+        conversation,
+        user_text=text,
+        attachment_ids=attachment_ids,
+        forced_mode=forced_mode,
     )
 
     async def event_stream():

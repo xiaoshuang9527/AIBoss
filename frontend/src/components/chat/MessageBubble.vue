@@ -9,7 +9,8 @@ import { computed } from 'vue'
 import MarkdownBlock from './MarkdownBlock.vue'
 import ReasoningBlock from './ReasoningBlock.vue'
 import AttachmentTray from './AttachmentTray.vue'
-import type { ChatAttachment, ChatMessage } from '@/types/chat'
+import JobResultCards from './JobResultCards.vue'
+import type { ChatAttachment, ChatMessage, JobCard, JobCardsPayload } from '@/types/chat'
 import type { StreamingMessage } from '@/stores/chat'
 
 const props = defineProps<{
@@ -42,6 +43,34 @@ const toolCalls = computed(
 const messageAttachments = computed(() => {
   const ids = props.message?.attachments ?? []
   return ids.map((id) => props.attachments[id]).filter(Boolean)
+})
+
+/**
+ * 岗位卡片数据。
+ *
+ * 有两个来源，必须都处理：
+ * * **流式中**：`streaming.toolResults` 是载荷数组（可能有多轮工具调用）
+ * * **已落库**：`message.content_data` 是 `{payload_type, data}` 单个对象
+ *   （后端只持久化最后一个结构化结果）
+ */
+const jobCardBlocks = computed<JobCardsPayload[]>(() => {
+  const blocks: JobCardsPayload[] = []
+
+  for (const item of props.streaming?.toolResults ?? []) {
+    const payload = item as JobCardsPayload
+    if (Array.isArray(payload?.jobs)) blocks.push(payload)
+  }
+
+  const contentData = props.message?.content_data as
+    | { payload_type?: string; data?: JobCardsPayload }
+    | null
+    | undefined
+  if (contentData?.payload_type === 'job_cards' && Array.isArray(contentData.data?.jobs)) {
+    // 避免与流式来源重复
+    if (!blocks.length) blocks.push(contentData.data)
+  }
+
+  return blocks
 })
 
 const latencyLabel = computed(() => {
@@ -119,6 +148,15 @@ function toolArgs(call: { arguments: Record<string, unknown> }): string {
             </span>
           </div>
         </div>
+
+        <!-- 岗位卡片（工具的结构化结果） -->
+        <JobResultCards
+          v-for="(block, index) in jobCardBlocks"
+          :key="`jobs-${index}`"
+          :jobs="block.jobs"
+          :total="block.total"
+          :query="block.query"
+        />
 
         <!-- 正文 -->
         <MarkdownBlock v-if="text" :source="text" />

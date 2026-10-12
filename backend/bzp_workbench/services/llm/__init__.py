@@ -24,7 +24,7 @@ from .base import (
     ToolDefinition,
 )
 from .capabilities import Capability, normalize_capabilities
-from .errors import LLMError, LLMErrorType
+from .errors import LLMError, LLMErrorType, wrap_exception
 from .factory import (
     assert_config_usable,
     build_adapter,
@@ -60,4 +60,5 @@ __all__ = [
     "normalize_capabilities",
     "resolve_model_config",
     "supported_providers",
+    "wrap_exception",
 ]

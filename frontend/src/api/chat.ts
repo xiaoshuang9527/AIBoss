@@ -7,11 +7,11 @@ import type {
   ChatMessage,
   ConversationDetail,
 } from '@/types/chat'
-import type { SSEMetaData, SSEErrorData, SSEUsageData, SSEToolCallData } from '@/types/chat'
+import type { SSEMetaData, SSEErrorData, SSEUsageData, SSEToolCallData, SSEToolResultData } from '@/types/chat'
 
 const BASE = import.meta.env.VITE_API_BASE || '/api'
 
-function form(body: Record<string, string | number | undefined>): FormData {
+function form(body: Record<string, string | number | boolean | undefined>): FormData {
   const data = new FormData()
   for (const [key, value] of Object.entries(body)) {
     if (value !== undefined && value !== null && value !== '') {
@@ -38,11 +38,11 @@ export const chatApi = {
 
   updateConversation: (
     id: number,
-    payload: { title?: string; model_config_id?: number },
+    payload: { title?: string; model_config_id?: number; mode?: string; reset_slots?: boolean },
   ) =>
     patch<ChatConversation>(
       `/chat/conversations/${id}`,
-      form(payload as Record<string, string | number | undefined>),
+      form(payload as Record<string, string | number | boolean | undefined>),
       { headers: { 'Content-Type': 'multipart/form-data' } },
     ),
 
@@ -79,6 +79,7 @@ export interface StreamHandlers {
   onReasoning?: (delta: string) => void
   onText?: (delta: string) => void
   onToolCall?: (data: SSEToolCallData) => void
+  onToolResult?: (data: SSEToolResultData) => void
   onUsage?: (data: SSEUsageData) => void
   onDone?: (finishReason: string) => void
   onError?: (data: SSEErrorData) => void
@@ -86,7 +87,13 @@ export interface StreamHandlers {
 
 export function streamMessage(
   conversationId: number,
-  payload: { content: string; attachment_ids?: number[]; model_config_id?: number },
+  payload: {
+    content: string
+    attachment_ids?: number[]
+    model_config_id?: number
+    /** 显式指定模式（跳过自动路由），传 auto 表示重新自动判断 */
+    mode?: string
+  },
   handlers: StreamHandlers,
 ): AbortController {
   const controller = new AbortController()
@@ -101,6 +108,7 @@ export function streamMessage(
           content: payload.content,
           attachment_ids: payload.attachment_ids ?? [],
           model_config_id: payload.model_config_id,
+          mode: payload.mode,
         }),
         signal: controller.signal,
       })
@@ -213,6 +221,9 @@ function dispatch(block: string, handlers: StreamHandlers): void {
       break
     case 'tool_call':
       handlers.onToolCall?.(data as unknown as SSEToolCallData)
+      break
+    case 'tool_result':
+      handlers.onToolResult?.(data as unknown as SSEToolResultData)
       break
     case 'usage':
       handlers.onUsage?.(data as unknown as SSEUsageData)

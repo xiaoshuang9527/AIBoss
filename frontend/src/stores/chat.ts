@@ -8,8 +8,25 @@ import type {
   ChatConversation,
   ChatMessage,
   ChatToolCallRecord,
+  ToolResultPayload,
 } from '@/types/chat'
 import type { ModelConfig } from '@/types/model'
+
+/** 意图模式的中文标签（前端展示用） */
+export const MODE_LABELS: Record<string, string> = {
+  unset: '自动判断',
+  job_hunting: '找岗位',
+  interview_coach: '面试辅导',
+  chat: '通用对话',
+}
+
+/** 可手动选择的模式（含 auto） */
+export const MODE_OPTIONS: { value: string; label: string; description: string }[] = [
+  { value: 'auto', label: '自动判断', description: '由 AI 根据你的话判断意图' },
+  { value: 'job_hunting', label: '找岗位', description: '检索本地岗位库、发起抓取' },
+  { value: 'interview_coach', label: '面试辅导', description: '简历与 JD 匹配分析、面试题' },
+  { value: 'chat', label: '通用对话', description: '不限工具，普通问答' },
+]
 
 /** 前端本地的"正在生成中"消息（尚未落库，用负数 id 占位） */
 export interface StreamingMessage {
@@ -17,7 +34,10 @@ export interface StreamingMessage {
   content: string
   reasoning: string
   toolCalls: ChatToolCallRecord[]
+  /** 工具返回的结构化载荷，按出现顺序保存（岗位卡片等） */
+  toolResults: ToolResultPayload[]
   modelLabel: string
+  mode: string
   errorType: string | null
   errorMessage: string | null
   errorSuggestion: string | null
@@ -144,6 +164,20 @@ export const useChatStore = defineStore('chat', () => {
     }
   }
 
+  /**
+   * 手动切换意图模式。
+   *
+   * 这是对「惰性路由」的必要补充：路由只在首轮/未定模式时判断（为了省一次
+   * 模型往返），所以话题跳转时不会自动重判。用户可以用这个入口直接纠正，
+   * 也可以选「自动判断」清空模式让下一轮重新判断。
+   */
+  async function switchMode(mode: string) {
+    if (!currentId.value) return
+    const updated = await chatApi.updateConversation(currentId.value, { mode, reset_slots: true })
+    const index = conversations.value.findIndex((item) => item.id === currentId.value)
+    if (index >= 0) conversations.value[index] = updated
+  }
+
   // ------------------------------------------------------------------
   // 上传
   // ------------------------------------------------------------------
@@ -192,7 +226,9 @@ export const useChatStore = defineStore('chat', () => {
       content: '',
       reasoning: '',
       toolCalls: [],
+      toolResults: [],
       modelLabel: '',
+      mode: currentConversation.value?.mode ?? 'unset',
       errorType: null,
       errorMessage: null,
       errorSuggestion: null,
@@ -202,7 +238,14 @@ export const useChatStore = defineStore('chat', () => {
 
     const handlers: StreamHandlers = {
       onMeta: (data) => {
-        if (streaming.value) streaming.value.modelLabel = data.model_label
+        if (!streaming.value) return
+        streaming.value.modelLabel = data.model_label
+        streaming.value.mode = data.mode
+        // 模式可能被路由改变，同步到会话对象以便页头显示
+        const index = conversations.value.findIndex((item) => item.id === currentId.value)
+        if (index >= 0) {
+          conversations.value[index] = { ...conversations.value[index], mode: data.mode }
+        }
       },
       onReasoning: (delta) => {
         if (streaming.value) streaming.value.reasoning += delta
@@ -219,6 +262,12 @@ export const useChatStore = defineStore('chat', () => {
           name: data.name,
           arguments: data.arguments,
         })
+      },
+      onToolResult: (data) => {
+        // 只保留有结构化数据的载荷 —— 纯文本结果（如工具报错）不值得单独渲染
+        if (data.data && data.payload_type !== 'text') {
+          streaming.value?.toolResults.push(data.data)
+        }
       },
       onError: (data) => {
         if (streaming.value) {
@@ -322,6 +371,7 @@ export const useChatStore = defineStore('chat', () => {
     removeConversation,
     renameConversation,
     switchModel,
+    switchMode,
     uploadAttachment,
     send,
     stopStreaming,

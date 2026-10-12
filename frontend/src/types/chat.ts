@@ -51,6 +51,45 @@ export interface ChatToolCallRecord {
   arguments: Record<string, unknown>
 }
 
+/** 岗位卡片（工具 search_existing_jobs 的结构化结果） */
+export interface JobCard {
+  id: number
+  job_id: string
+  title: string
+  company: string
+  salary: string
+  salary_avg: number | null
+  salary_bucket: string
+  city: string | null
+  location: string | null
+  experience: string | null
+  degree: string | null
+  company_scale: string | null
+  company_stage: string | null
+  company_industry: string | null
+  boss_name: string | null
+  boss_active_status: string | null
+  skills: string[]
+  welfare: string | null
+  jd_preview: string | null
+  has_jd: boolean
+  /** 「去 BOSS 沟通」的目标地址 */
+  job_link: string | null
+  company_link: string | null
+  is_favorite: boolean
+  scraped_at: string | null
+}
+
+/** 工具结果的载荷（按 payload_type 区分） */
+export interface JobCardsPayload {
+  jobs: JobCard[]
+  total: number
+  returned?: number
+  query?: Record<string, unknown>
+}
+
+export type ToolResultPayload = JobCardsPayload | Record<string, unknown>
+
 export type AttachmentKind = 'image' | 'pdf' | 'docx' | 'text' | 'unsupported'
 
 export type ExtractStatus = 'pending' | 'done' | 'failed' | 'not_applicable'
@@ -105,6 +144,9 @@ export interface SSEMetaData {
   model_label: string
   mode: string
   fake: boolean
+  /** 路由理由，便于用户理解为什么走了某个模式 */
+  mode_reason?: string
+  mode_confidence?: number
 }
 
 export interface SSEErrorData {
@@ -126,4 +168,12 @@ export interface SSEToolCallData {
   id: string
   name: string
   arguments: Record<string, unknown>
+}
+
+export interface SSEToolResultData {
+  id: string
+  name: string
+  payload_type: string
+  data: ToolResultPayload | null
+  latency_ms?: number
 }

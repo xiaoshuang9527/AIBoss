@@ -33,6 +33,9 @@ os.environ.update(
         # 测试环境没有真实 Chrome：关掉自动拉起，避免白等
         "BZP_AUTOSTART_BROWSER": "false",
         "BZP_BROWSER_START_TIMEOUT_SECONDS": "0",
+        # 用假模型驱动对话：否则测试会真的调用外部 LLM API，
+        # 既慢又不可复现，还会消耗真实额度
+        "BZP_FAKE_LLM": "true",
         "BZP_CONFIG_ENV_FILE": "",
     }
 )

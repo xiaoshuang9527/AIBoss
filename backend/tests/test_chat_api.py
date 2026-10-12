@@ -676,6 +676,151 @@ class TestAttachmentApi:
         assert "text" in [name for name, _ in parse_sse(response.text)]
 
 
+class TestModePersistence:
+    """意图模式必须真的落库。
+
+    这是一条**回归测试**：曾经出现过「路由判断出模式、赋值、commit，
+    但 SQL 里没有 UPDATE」的隐蔽 bug —— 因为传入 stream_reply 的会话对象
+    已经不在 session 上（detached），SQLAlchemy 不会为 detached 对象生成 flush。
+
+    后果很隐蔽也很贵：模式每轮都会被重新路由，白白多一次模型调用，
+    而且界面上模式标签一直停在旧值、看起来"AI 判断不准"。
+    """
+
+    async def test_mode_is_persisted_after_first_message(self, client, conversation):
+        # 传 mode 强制指定：假模型驱动不具备真实分类能力，
+        # 这里要验证的是「模式是否落库」，不是「分类准不准」。
+        await client.post(
+            f"/api/chat/conversations/{conversation}/messages",
+            json={"content": "帮我在深圳找 Python 岗位", "mode": "job_hunting"},
+        )
+        detail = (await client.get(f"/api/chat/conversations/{conversation}")).json()["data"]
+        assert detail["conversation"]["mode"] == "job_hunting", (
+            "路由出的模式必须落库，否则下一轮会重复路由"
+        )
+
+    async def test_second_turn_reuses_mode_without_rerouting(self, client, conversation):
+        """第二轮必须「沿用当前模式」，不能再调模型判断意图。"""
+        from unittest.mock import patch as mock_patch
+
+        await client.post(
+            f"/api/chat/conversations/{conversation}/messages",
+            json={"content": "帮我在深圳找 Python 岗位", "mode": "job_hunting"},
+        )
+
+        # 第二轮：路由函数应该直接返回「沿用」，不经过模型
+        from bzp_workbench.services.ai import service as chat_service
+
+        captured: list[str] = []
+        original = chat_service.route
+
+        async def spy_route(*args, **kwargs):
+            result = await original(*args, **kwargs)
+            captured.append(result.reason)
+            return result
+
+        with mock_patch.object(chat_service, "route", spy_route):
+            await client.post(
+                f"/api/chat/conversations/{conversation}/messages",
+                json={"content": "那薪资呢"},
+            )
+
+        assert captured, "应调用过路由"
+        assert captured[0] == "沿用当前模式", f"第二轮不该重路由，实际 reason={captured[0]!r}"
+
+    async def test_manual_mode_switch_persists(self, client, conversation):
+        response = await client.patch(
+            f"/api/chat/conversations/{conversation}",
+            data={"mode": "interview_coach", "reset_slots": True},
+        )
+        assert response.status_code == 200
+        assert response.json()["data"]["mode"] == "interview_coach"
+
+        detail = (await client.get(f"/api/chat/conversations/{conversation}")).json()["data"]
+        assert detail["conversation"]["mode"] == "interview_coach"
+
+    async def test_auto_mode_resets_to_unset(self, client, conversation):
+        """选「自动判断」应清空模式，让下一轮重新路由。"""
+        await client.patch(
+            f"/api/chat/conversations/{conversation}", data={"mode": "chat"}
+        )
+        response = await client.patch(
+            f"/api/chat/conversations/{conversation}", data={"mode": "auto"}
+        )
+        assert response.json()["data"]["mode"] == "unset"
+
+    async def test_invalid_mode_rejected(self, client, conversation):
+        response = await client.patch(
+            f"/api/chat/conversations/{conversation}", data={"mode": "not_a_mode"}
+        )
+        assert response.status_code == 422
+
+    async def test_forced_mode_skips_routing(self, client, conversation):
+        """显式指定模式时应跳过路由（reason 为「用户手动指定」）。"""
+        response = await client.post(
+            f"/api/chat/conversations/{conversation}/messages",
+            json={"content": "解释一下什么是 REST", "mode": "chat"},
+        )
+        frames = parse_sse(response.text)
+        meta = frames[0][1]
+        assert meta["mode"] == "chat"
+        assert meta["mode_reason"] == "用户手动指定"
+
+    async def test_forced_mode_is_persisted(self, client, conversation):
+        await client.post(
+            f"/api/chat/conversations/{conversation}/messages",
+            json={"content": "解释一下什么是 REST", "mode": "chat"},
+        )
+        detail = (await client.get(f"/api/chat/conversations/{conversation}")).json()["data"]
+        assert detail["conversation"]["mode"] == "chat"
+
+
+class TestToolResultPersistence:
+    """工具结果要以结构化载荷落库，刷新页面后卡片仍可渲染。"""
+
+    async def test_job_cards_saved_as_structured_payload(self, client, conversation):
+        from bzp_workbench.models import JobRecord
+        from bzp_workbench.db import SessionLocal
+
+        async with SessionLocal() as session:
+            session.add(
+                JobRecord(
+                    job_id="pytest-job-1",
+                    title="Python 后端工程师",
+                    company="测试公司",
+                    salary="20-40K",
+                    salary_avg=30,
+                    city="深圳",
+                    job_link="https://www.zhipin.com/job_detail/pytest-job-1.html",
+                    skill_keywords='["Python"]',
+                )
+            )
+            await session.commit()
+
+        try:
+            await client.post(
+                f"/api/chat/conversations/{conversation}/messages",
+                json={"content": "帮我在深圳找 Python 岗位"},
+            )
+            detail = (await client.get(f"/api/chat/conversations/{conversation}")).json()[
+                "data"
+            ]
+            assistant = detail["messages"][-1]
+            assert assistant["content_type"] == "job_cards"
+            payload = assistant["content_data"]
+            assert payload["payload_type"] == "job_cards"
+            jobs = payload["data"]["jobs"]
+            assert jobs and jobs[0]["job_link"].endswith(".html")
+        finally:
+            from sqlalchemy import delete
+
+            async with SessionLocal() as session:
+                await session.execute(
+                    delete(JobRecord).where(JobRecord.job_id == "pytest-job-1")
+                )
+                await session.commit()
+
+
 class TestConversationDeletion:
     async def test_delete_removes_attachment_files_from_disk(self, client, conversation):
         """简历属敏感文件，删除会话必须连带清理磁盘。"""
