@@ -269,3 +269,69 @@ class AppSetting(Base):
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False
     )
+
+
+class ModelConfig(Base):
+    """大模型接入配置（模型管理模块）。
+
+    设计要点
+    --------
+    * **密钥只存密文**：``api_key_encrypted`` 用独立子密钥加密（见
+      ``services/llm/crypto.py``），读接口一律不回传明文，只回掩码。
+      掩码由密文实时推导，不单独存列——避免两处状态不一致。
+    * **供应商差异靠元数据**：``provider`` 对应适配器注册表里的 key；
+      ``extra_config`` 用 JSON 承载供应商特有参数，这样新增供应商
+      **不需要改表结构**。
+    * **能力标签**：``capabilities`` 是 JSON 数组，取值见
+      ``services/llm/capabilities.py``。发请求前用它做前置校验，
+      避免把「不支持的能力」送到 API 才报错。
+    * 同一 ``provider`` + ``model_id`` 只允许配置一条，避免重复接入
+      同一个模型导致界面上出现无法区分的两条记录。
+    """
+
+    __tablename__ = "model_configs"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+
+    # ---------- 展示与路由 ----------
+    display_name: Mapped[str] = mapped_column(String(128), nullable=False)
+    provider: Mapped[str] = mapped_column(String(32), nullable=False, index=True)
+    model_id: Mapped[str] = mapped_column(String(128), nullable=False)
+    base_url: Mapped[str | None] = mapped_column(String(512), nullable=True)
+
+    # ---------- 凭据（仅密文） ----------
+    api_key_encrypted: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+    # ---------- 能力与供应商特有参数 ----------
+    capabilities: Mapped[str] = mapped_column(Text, nullable=False, default="[]")
+    extra_config: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+    # ---------- 状态 ----------
+    is_enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True, index=True)
+    is_default: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    sort_order: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+
+    # ---------- 最近一次连通性测试结果（列表页直接展示，不必重新探测） ----------
+    last_tested_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    last_test_ok: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
+    last_test_message: Mapped[str | None] = mapped_column(Text, nullable=True)
+    last_test_latency_ms: Mapped[int | None] = mapped_column(Integer, nullable=True)
+
+    # ---------- 备注 ----------
+    remark: Mapped[str | None] = mapped_column(String(255), nullable=True)
+
+    created_at: Mapped[datetime] = _now_column()
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False
+    )
+
+    __table_args__ = (
+        UniqueConstraint("provider", "model_id", name="uq_model_configs_provider_model"),
+        Index("ix_model_configs_enabled_sort", "is_enabled", "sort_order"),
+    )
+
+    def __repr__(self) -> str:  # pragma: no cover
+        return (
+            f"<ModelConfig id={self.id} {self.display_name!r} "
+            f"provider={self.provider} model={self.model_id}>"
+        )

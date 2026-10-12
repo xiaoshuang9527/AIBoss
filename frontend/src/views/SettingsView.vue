@@ -8,11 +8,17 @@
 import { computed, onMounted, reactive, ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { systemApi } from '@/api'
+import ModelManagerPanel from '@/components/models/ModelManagerPanel.vue'
+import { useModelStore } from '@/stores/model'
 import { useWorkbenchStore } from '@/stores/workbench'
 import { formatBytes, formatDateTime } from '@/utils/format'
 import type { ScraperHealth, StorageUsage, SystemLog } from '@/types'
 
 const store = useWorkbenchStore()
+const modelStore = useModelStore()
+
+/** 当前 Tab。模型管理独立成一个 Tab，避免系统设置页被撑得过长 */
+const activeTab = ref<'system' | 'models'>('system')
 
 const saving = ref(false)
 const loadingLogs = ref(false)
@@ -142,7 +148,20 @@ onMounted(async () => {
 
 <template>
   <div class="bzp-page">
-    <div class="bzp-grid bzp-grid--2">
+    <el-tabs v-model="activeTab" class="settings__tabs">
+      <!-- ============================================================
+           Tab 1：系统设置（原有内容）
+           ============================================================ -->
+      <el-tab-pane name="system">
+        <template #label>
+          <span class="settings__tab-label">
+            <el-icon><Setting /></el-icon>
+            系统设置
+          </span>
+        </template>
+
+        <div class="settings__tab-body">
+          <div class="bzp-grid bzp-grid--2">
       <!-- ============ 抓取参数 ============ -->
       <section class="bzp-panel">
         <div class="bzp-panel__header">
@@ -375,10 +394,57 @@ onMounted(async () => {
         />
       </div>
     </section>
+        </div>
+      </el-tab-pane>
+
+      <!-- ============================================================
+           Tab 2：模型管理
+           ============================================================ -->
+      <el-tab-pane name="models">
+        <template #label>
+          <span class="settings__tab-label">
+            <el-icon><Cpu /></el-icon>
+            模型管理
+            <el-badge
+              v-if="modelStore.enabledModels.length"
+              :value="modelStore.enabledModels.length"
+              type="primary"
+              class="settings__tab-badge"
+            />
+          </span>
+        </template>
+
+        <div class="settings__tab-body">
+          <ModelManagerPanel />
+        </div>
+      </el-tab-pane>
+    </el-tabs>
   </div>
 </template>
 
 <style scoped>
+.settings__tabs {
+  --el-tabs-header-height: 46px;
+}
+
+.settings__tab-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 14px;
+}
+
+.settings__tab-badge {
+  margin-left: 4px;
+}
+
+.settings__tab-body {
+  padding-top: 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
 .settings__side {
   display: flex;
   flex-direction: column;

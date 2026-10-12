@@ -398,6 +398,187 @@ class LogRead(ORMModel):
     created_at: datetime
 
 
+# ============================================================
+# 模型管理
+# ============================================================
+class ModelConfigRead(ORMModel):
+    """模型配置的读模型。
+
+    ⚠️ **刻意不定义 ``api_key`` 字段**：从类型系统上杜绝明文密钥泄漏，
+    而不是依赖开发者记得手动过滤。外部只能拿到 ``api_key_masked``。
+    """
+
+    id: int
+    display_name: str
+    provider: str
+    provider_label: str = ""
+    model_id: str
+    base_url: str | None = None
+    capabilities: list[str] = Field(default_factory=list)
+    extra_config: dict[str, Any] = Field(default_factory=dict)
+
+    is_enabled: bool = True
+    is_default: bool = False
+    sort_order: int = 0
+    remark: str | None = None
+
+    #: 密钥是否已配置（不暴露内容）
+    has_api_key: bool = False
+    #: 掩码，如 ``sk-****abcd``
+    api_key_masked: str | None = None
+
+    last_tested_at: datetime | None = None
+    last_test_ok: bool | None = None
+    last_test_message: str | None = None
+    last_test_latency_ms: int | None = None
+
+    created_at: datetime
+    updated_at: datetime
+
+    @field_validator("capabilities", mode="before")
+    @classmethod
+    def _parse_capabilities(cls, value: Any) -> list[str]:
+        from .services.llm.capabilities import normalize_capabilities
+
+        return normalize_capabilities(value)
+
+    @field_validator("extra_config", mode="before")
+    @classmethod
+    def _parse_extra(cls, value: Any) -> dict[str, Any]:
+        if value is None:
+            return {}
+        if isinstance(value, str):
+            try:
+                parsed = json.loads(value)
+            except (ValueError, TypeError):
+                return {}
+            return parsed if isinstance(parsed, dict) else {}
+        return value if isinstance(value, dict) else {}
+
+
+class ModelConfigCreate(BaseModel):
+    """新增模型配置。"""
+
+    display_name: str = Field(min_length=1, max_length=128)
+    provider: str = Field(min_length=1, max_length=32)
+    model_id: str = Field(min_length=1, max_length=128)
+    base_url: str | None = Field(default=None, max_length=512)
+    api_key: str | None = Field(default=None, description="明文只在写入时出现，不会回传")
+    capabilities: list[str] = Field(default_factory=list)
+    extra_config: dict[str, Any] = Field(default_factory=dict)
+    is_enabled: bool = True
+    is_default: bool = False
+    sort_order: int = 0
+    remark: str | None = Field(default=None, max_length=255)
+
+    @field_validator("display_name", "provider", "model_id")
+    @classmethod
+    def _strip_required(cls, value: str) -> str:
+        cleaned = value.strip()
+        if not cleaned:
+            raise ValueError("不能为空")
+        return cleaned
+
+    @field_validator("base_url", "api_key", "remark")
+    @classmethod
+    def _blank_to_none(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        cleaned = value.strip()
+        return cleaned or None
+
+
+class ModelConfigUpdate(BaseModel):
+    """更新模型配置。
+
+    **空值语义（重要）**：``api_key`` 为空表示「保持原密钥不变」。
+    否则用户只想改个显示名，就会把已保存的 Key 抹掉。
+    若要显式清空密钥，传 ``clear_api_key=true``。
+    """
+
+    display_name: str | None = Field(default=None, min_length=1, max_length=128)
+    provider: str | None = Field(default=None, min_length=1, max_length=32)
+    model_id: str | None = Field(default=None, min_length=1, max_length=128)
+    base_url: str | None = Field(default=None, max_length=512)
+    api_key: str | None = None
+    clear_api_key: bool = False
+    capabilities: list[str] | None = None
+    extra_config: dict[str, Any] | None = None
+    is_enabled: bool | None = None
+    is_default: bool | None = None
+    sort_order: int | None = None
+    remark: str | None = Field(default=None, max_length=255)
+
+
+class ModelTestDraftRequest(BaseModel):
+    """未保存的配置也能测试连接（弹窗里点「测试连接」时还没有 id）。"""
+
+    provider: str
+    model_id: str = Field(min_length=1)
+    base_url: str | None = None
+    api_key: str | None = None
+    capabilities: list[str] = Field(default_factory=list)
+    extra_config: dict[str, Any] = Field(default_factory=dict)
+    #: 编辑已有模型但未改 Key 时，用它复用数据库里已存的密钥
+    model_config_id: int | None = None
+
+    @field_validator("api_key")
+    @classmethod
+    def _blank_key_to_none(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        cleaned = value.strip()
+        return cleaned or None
+
+
+class ModelTestResult(BaseModel):
+    """测试连接结果。"""
+
+    ok: bool
+    latency_ms: int = 0
+    model_echo: str | None = None
+    message: str = ""
+    error_type: str | None = None
+    suggestion: str | None = None
+    detail: str | None = None
+
+
+class CapabilityOption(BaseModel):
+    value: str
+    label: str
+    description: str = ""
+
+
+class ProviderExtraField(BaseModel):
+    key: str
+    label: str
+    type: str = "text"
+    placeholder: str | None = None
+    description: str | None = None
+
+
+class ProviderMetadata(BaseModel):
+    """供应商元数据 —— 前端下拉、能力联动、默认地址的唯一数据源。"""
+
+    provider: str
+    display_name: str
+    default_base_url: str | None = None
+    requires_api_key: bool = True
+    base_url_editable: bool = True
+    supported_capabilities: list[str] = Field(default_factory=list)
+    doc_url: str | None = None
+    suggested_models: list[str] = Field(default_factory=list)
+    notes: list[str] = Field(default_factory=list)
+    extra_fields: list[ProviderExtraField] = Field(default_factory=list)
+
+
+class ModelProvidersResponse(BaseModel):
+    """``/api/models/providers`` 的响应。"""
+
+    providers: list[ProviderMetadata] = Field(default_factory=list)
+    capabilities: list[CapabilityOption] = Field(default_factory=list)
+
+
 class QueueStatus(BaseModel):
     running: int = 0
     pending: int = 0

@@ -27,6 +27,15 @@ websocket-client>=1.6.0,<2.0.0
 # ---- 登录态加密存储 ----
 cryptography==44.0.0
 
+# ---- 大模型调用（模型管理模块） ----
+# OpenAI 官方库：DeepSeek 等绝大多数供应商都提供 OpenAI 兼容接口，
+# 用它可省掉手写流式解析与 SSE 分包处理
+openai==1.59.6
+
+# ---- 文档解析（面试辅导模式：PDF / Word 简历） ----
+pdfplumber==0.11.4
+python-docx==1.1.2
+
 # ---- 调度 ----
 APScheduler==3.10.4
 

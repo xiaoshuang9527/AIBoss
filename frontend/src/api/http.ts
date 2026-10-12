@@ -78,6 +78,12 @@ export async function put<T>(url: string, body?: unknown): Promise<T> {
   return response.data.data
 }
 
+/** PATCH —— 用于局部更新（如启用/禁用、设为默认） */
+export async function patch<T>(url: string, body?: unknown): Promise<T> {
+  const response = await http.patch<ApiEnvelope<T>>(url, body)
+  return response.data.data
+}
+
 /** DELETE */
 export async function del<T>(url: string, body?: unknown): Promise<T> {
   const response = await http.delete<ApiEnvelope<T>>(url, { data: body })

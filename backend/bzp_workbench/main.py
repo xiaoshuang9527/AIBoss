@@ -22,6 +22,7 @@ from fastapi.responses import JSONResponse
 from .api import auth as auth_router
 from .api import export as export_router
 from .api import jobs as jobs_router
+from .api import models as models_router
 from .api import system as system_router
 from .api import tasks as tasks_router
 from .api import ws as ws_router
@@ -141,6 +142,7 @@ def create_app() -> FastAPI:
     # ---------- 路由 ----------
     prefix = settings.api_prefix
     application.include_router(system_router.router, prefix=prefix)
+    application.include_router(models_router.router, prefix=prefix)
     application.include_router(auth_router.router, prefix=prefix)
     application.include_router(tasks_router.router, prefix=prefix)
     application.include_router(jobs_router.router, prefix=prefix)
