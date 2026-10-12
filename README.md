@@ -704,36 +704,74 @@ volumes:
 | 数据目录 | `backend/storage` 需要持久化；`chrome-profiles` 含登录态，注意权限 |
 | 备份 | 备份数据库 + `storage/chrome-profiles`（登录态）+ `storage/auth` |
 
-### 7.7 Git 推送（Windows 上的常见故障）
+### 7.7 Git 推送故障排查（Windows / 受限网络）
 
-如果 `git clone` / `fetch` / `push` 报下面这种错：
+按下面顺序排查，**先定位到底是哪一层坏了**，不要盲目改配置。
 
-```
-fatal: unable to access 'https://github.com/...': schannel:
-  AcquireCredentialsHandle failed: SEC_E_NO_CREDENTIALS (0x8009030e)
-```
-
-这是 Git for Windows 默认的 **schannel TLS 后端**取不到凭据导致的（常见于系统证书存储异常、
-受限运行环境）。换用随 Git 一起分发的 OpenSSL 后端即可：
+#### 第 1 步：确认这个 Git 构建支持哪些 TLS 后端
 
 ```powershell
-# 方式一：单次生效
-git -c http.sslBackend=openssl push origin main
-
-# 方式二：持久生效（写入全局配置，之后所有 git 操作都用 OpenSSL）
-git config --global http.sslBackend openssl
-
-# 方式三：全局配置不可写时，用环境变量（注意要在同一个会话里先设置再执行 git）
-$env:GIT_SSL_BACKEND = 'openssl'   # 部分 git 版本不识别，优先用方式一/二
+git -c http.sslBackend=bogus ls-remote origin   # 故意传错值
+# 输出会列出可用后端，例如：
+#   fatal: Unsupported SSL backend 'bogus'. Supported SSL backends:
+#           schannel
 ```
 
-排查顺序建议：先 `git -c http.sslBackend=openssl ls-remote <仓库地址>`。
-能列出 ref 就说明只是 TLS 后端问题，与网络阻断无关。
+如果你的 Git **只支持 `schannel`**（Git for Windows 默认如此），那么
+任何 `http.sslBackend=openssl` 的写法都是无效的 —— 它会被拒绝或忽略。
+网上大量"换成 openssl"的建议在这个构建上并不成立。
 
-> 若报 `could not read Username for 'https://github.com'`，说明本机还没有该站点的凭据。
-> 确认 Windows 凭据管理器里存在 `git:https://<用户名>@github.com` 条目
-> （`cmdkey /list | findstr github`），或在能弹出浏览器的终端里执行一次 `git push`
-> 走 Git Credential Manager 完成 OAuth 授权。
+#### 第 2 步：区分是 DNS 问题还是 TLS 问题
+
+```powershell
+# a) 看解析到哪个 IP
+Resolve-DnsName github.com -Type A | Select-Object IPAddress
+
+# b) 换一个已知可用的 IP 再试（绕过 DNS）
+git -c "http.curloptResolve=github.com:443:140.82.113.3" ls-remote origin
+```
+
+- 报 `Could not connect ... after 21s` → **IP 被阻断**，换 IP 可能有效；
+- 报 `Recv failure: Connection was reset` → **TLS 层被拦截**（按 SNI 特征），
+  换 IP 无效，跳到第 3 步。
+
+判断技巧：用 Python 的 SSL 栈访问同一个地址。若能通而 git 不通，
+基本可以确认是**针对 git TLS 指纹的拦截**，而不是网络整体不可用：
+
+```powershell
+python -c "import urllib.request; print(urllib.request.urlopen('https://github.com/xiaoshuang9527/AIBoss.git/info/refs?service=git-upload-pack', timeout=20).status)"
+```
+
+#### 第 3 步：改用 SSH（TLS 被拦截时的唯一出路）
+
+`github.com:22` 走的是 SSH 协议，不经过 TLS，通常不会被同样的规则拦掉。
+
+```powershell
+# 1) 把远端切到 SSH
+git remote set-url origin git@github.com:<用户名>/<仓库>.git
+
+# 2) 确认 SSH 可达（这一步不需要认证）
+ssh -T git@github.com
+```
+
+**⚠️ 密钥文件名不是默认值时，git 不会自动选用**，必须显式指定：
+
+```powershell
+# 症状：ssh -T git@github.com 能成功，但 git push 报 Permission denied (publickey)
+# 原因：git 只自动尝试 id_rsa / id_ed25519，不会尝试 id_ed25519_agent 这类自定义名
+git config core.sshCommand "ssh -i ~/.ssh/id_ed25519_agent -o IdentitiesOnly=yes"
+```
+
+把 `core.sshCommand` 写进**仓库本地配置**（不加 `--global`）即可，
+这样只影响这个仓库，不动你的全局设置。
+
+#### 附：HTTPS 凭据相关的报错
+
+| 报错 | 含义与处理 |
+|------|-----------|
+| `schannel: AcquireCredentialsHandle failed: SEC_E_NO_CREDENTIALS` | 系统证书存储/凭据异常，或运行在受限环境里。优先按上面第 1–3 步排查 |
+| `could not read Username for 'https://github.com'` | 本机没有该站点的凭据。`cmdkey /list \| findstr github` 应有 `git:https://<用户名>@github.com` 条目；否则在能弹浏览器的终端里执行一次 `git push` 走 Git Credential Manager 完成授权 |
+| `terminal prompts disabled` | 设置了 `GIT_TERMINAL_PROMPT=0` 且没有已存凭据 |
 
 ### 7.8 常见问题
 
