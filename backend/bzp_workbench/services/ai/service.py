@@ -68,6 +68,15 @@ MODE_SYSTEM_PROMPTS: dict[str, str] = {
 #: 用户第一句「帮我找深圳的 Python 岗位」会被当成闲聊处理。
 DEFAULT_MODE = UNSET_MODE
 
+#: 会被持久化成消息结构化载荷的工具结果类型。
+#: 前端按这些类型分发到对应卡片组件（见 MessageBubble.vue 的 payloads）。
+STRUCTURED_PAYLOAD_TYPES = (
+    "job_cards",     # 岗位列表
+    "task_created",  # 抓取任务已创建
+    "task_status",   # 抓取任务进度
+    "resume",        # 简历解析结果（P4）
+)
+
 
 def system_prompt_for(mode: str) -> str:
     return MODE_SYSTEM_PROMPTS.get(mode, MODE_SYSTEM_PROMPTS["chat"])
@@ -516,11 +525,13 @@ async def _persist_assistant_message(
     content_type = "text"
     content_data: dict[str, Any] | None = None
 
-    # 取最后一个有结构化数据的工具结果作为消息载荷
+    # 取最后一个有结构化数据的工具结果作为消息载荷。
+    # 前端据此渲染卡片（岗位列表 / 抓取任务 / 任务进度）而不是纯文本 ——
+    # 这样刷新页面后卡片仍然可点击、进度仍然是结构化的。
     structured = [
         item
         for item in outcome.tool_results
-        if item.get("payload_type") in ("job_cards", "task_created", "resume")
+        if item.get("payload_type") in STRUCTURED_PAYLOAD_TYPES
         and item.get("data") is not None
     ]
     if structured:

@@ -12,10 +12,17 @@ from __future__ import annotations
 
 from .base import Tool, ToolContext, ToolError, ToolResult
 from .search_jobs import SearchExistingJobsTool
+from .task_status import CheckTaskStatusTool
+from .trigger_scraper import TriggerBossScraperTool
 
-#: 已注册的工具。P2/P3 会加入 trigger_boss_scraper / get_job_detail / parse_resume
+#: 已注册的工具。
+#:
+#: 注意 ``TriggerBossScraperTool`` 的 modes 只有 job_hunting —— 抓取是有副作用的
+#: 重操作（10-20 分钟，且高频抓取会触发风控），不该在通用对话里被误调用。
 _TOOLS: tuple[Tool, ...] = (
     SearchExistingJobsTool(),
+    TriggerBossScraperTool(),
+    CheckTaskStatusTool(),
 )
 
 _REGISTRY: dict[str, Tool] = {tool.name: tool for tool in _TOOLS}
@@ -39,11 +46,13 @@ def tool_names() -> list[str]:
 
 
 __all__ = [
+    "CheckTaskStatusTool",
     "SearchExistingJobsTool",
     "Tool",
     "ToolContext",
     "ToolError",
     "ToolResult",
+    "TriggerBossScraperTool",
     "all_tools",
     "get_tool",
     "tool_names",

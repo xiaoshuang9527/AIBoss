@@ -132,9 +132,18 @@ class TestToolRegistry:
         assert "search_existing_jobs" in tool_names()
 
     def test_interview_mode_has_no_job_tools(self):
-        """面试辅导模式下不应暴露岗位查询工具，减少模型误调用。"""
+        """面试辅导模式下不应暴露岗位相关工具，减少模型误调用。
+
+        新工具默认不带 modes（即所有模式可用），所以这里逐个断言"哪些模式
+        不该有它"，而不是断言工具总数 —— 后者每加一个工具就要改，很脆弱。
+        """
         assert tools_for_mode("interview_coach") == []
-        assert [t.name for t in tools_for_mode("job_hunting")] == ["search_existing_jobs"]
+
+        hunting = {t.name for t in tools_for_mode("job_hunting")}
+        assert "search_existing_jobs" in hunting
+        # 抓取与查进度都属于"找岗位"流程，面试辅导模式下必须看不到
+        for name in ("trigger_boss_scraper", "check_task_status"):
+            assert name not in {t.name for t in tools_for_mode("interview_coach")}
 
     def test_get_tool(self):
         assert get_tool("search_existing_jobs") is not None

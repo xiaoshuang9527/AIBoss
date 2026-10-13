@@ -88,7 +88,61 @@ export interface JobCardsPayload {
   query?: Record<string, unknown>
 }
 
-export type ToolResultPayload = JobCardsPayload | Record<string, unknown>
+/** 薪资档位解析结果（抓取任务用；BOSS 只有粗档位，没有精确区间） */
+export interface SalaryResolutionPayload {
+  code: string
+  label: string
+  raw: string
+  wanted: [number, number | null] | null
+  /** 档位与用户期望不一致时的说明；null 表示基本一致 */
+  note: string | null
+}
+
+/** 抓取任务已创建（tool: trigger_boss_scraper） */
+export interface TaskCreatedPayload {
+  task_id: number
+  status: string
+  status_label: string
+  keyword: string
+  city: string
+  salary: SalaryResolutionPayload | null
+  experience?: string | null
+  degree?: string | null
+  max_pages: number
+  with_detail: boolean
+  estimated_minutes: number
+  /** true 表示命中了去重，并未真的新建任务 */
+  duplicate?: boolean
+}
+
+/** 单个抓取任务的进度 */
+export interface TaskStatusItem {
+  task_id: number
+  keyword: string
+  city: string
+  status: string
+  status_label: string
+  is_active: boolean
+  progress: number
+  stage_text: string | null
+  total_found: number
+  new_count: number
+  detail_count: number
+  error_message: string | null
+  duration_seconds: number | null
+  created_at: string | null
+  finished_at: string | null
+}
+
+export interface TaskStatusPayload {
+  tasks: TaskStatusItem[]
+}
+
+export type ToolResultPayload =
+  | JobCardsPayload
+  | TaskCreatedPayload
+  | TaskStatusPayload
+  | Record<string, unknown>
 
 export type AttachmentKind = 'image' | 'pdf' | 'docx' | 'text' | 'unsupported'
 

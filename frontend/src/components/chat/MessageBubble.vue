@@ -10,7 +10,15 @@ import MarkdownBlock from './MarkdownBlock.vue'
 import ReasoningBlock from './ReasoningBlock.vue'
 import AttachmentTray from './AttachmentTray.vue'
 import JobResultCards from './JobResultCards.vue'
-import type { ChatAttachment, ChatMessage, JobCard, JobCardsPayload } from '@/types/chat'
+import TaskCreatedCard from './TaskCreatedCard.vue'
+import TaskStatusCard from './TaskStatusCard.vue'
+import type {
+  ChatAttachment,
+  ChatMessage,
+  JobCardsPayload,
+  TaskCreatedPayload,
+  TaskStatusPayload,
+} from '@/types/chat'
 import type { StreamingMessage } from '@/stores/chat'
 
 const props = defineProps<{
@@ -46,32 +54,67 @@ const messageAttachments = computed(() => {
 })
 
 /**
- * 岗位卡片数据。
+ * 工具返回的结构化载荷。
  *
  * 有两个来源，必须都处理：
  * * **流式中**：`streaming.toolResults` 是载荷数组（可能有多轮工具调用）
  * * **已落库**：`message.content_data` 是 `{payload_type, data}` 单个对象
  *   （后端只持久化最后一个结构化结果）
+ *
+ * 统一成一个带 kind 判别的列表，模板里按 kind 分发到对应卡片组件。
  */
-const jobCardBlocks = computed<JobCardsPayload[]>(() => {
-  const blocks: JobCardsPayload[] = []
+interface TypedPayload {
+  kind: 'job_cards' | 'task_created' | 'task_status'
+  data: unknown
+}
 
+const payloads = computed<TypedPayload[]>(() => {
+  const list: TypedPayload[] = []
+
+  // ---- 流式来源 ----
   for (const item of props.streaming?.toolResults ?? []) {
-    const payload = item as JobCardsPayload
-    if (Array.isArray(payload?.jobs)) blocks.push(payload)
+    const raw = item as Record<string, unknown>
+    if (Array.isArray(raw?.jobs)) {
+      list.push({ kind: 'job_cards', data: raw })
+    } else if (raw && typeof raw === 'object' && 'task_id' in raw) {
+      list.push({ kind: 'task_created', data: raw })
+    } else if (Array.isArray(raw?.tasks)) {
+      list.push({ kind: 'task_status', data: raw })
+    }
   }
 
+  // ---- 已落库来源 ----
   const contentData = props.message?.content_data as
-    | { payload_type?: string; data?: JobCardsPayload }
+    | { payload_type?: string; data?: unknown }
     | null
     | undefined
-  if (contentData?.payload_type === 'job_cards' && Array.isArray(contentData.data?.jobs)) {
-    // 避免与流式来源重复
-    if (!blocks.length) blocks.push(contentData.data)
+  if (contentData?.payload_type && contentData.data && !list.length) {
+    const kind = contentData.payload_type
+    if (kind === 'job_cards' || kind === 'task_created' || kind === 'task_status') {
+      list.push({ kind, data: contentData.data })
+    }
   }
 
-  return blocks
+  return list
 })
+
+const jobCardBlocks = computed(() =>
+  payloads.value
+    .filter((item) => item.kind === 'job_cards')
+    .map((item) => item.data as JobCardsPayload),
+)
+
+const taskCreatedBlocks = computed(() =>
+  payloads.value
+    .filter((item) => item.kind === 'task_created')
+    .map((item) => item.data as TaskCreatedPayload),
+)
+
+const taskStatusBlocks = computed(() =>
+  payloads.value
+    .filter((item) => item.kind === 'task_status')
+    .map((item) => item.data as TaskStatusPayload),
+)
 
 const latencyLabel = computed(() => {
   const value = props.message?.latency_ms
@@ -156,6 +199,20 @@ function toolArgs(call: { arguments: Record<string, unknown> }): string {
           :jobs="block.jobs"
           :total="block.total"
           :query="block.query"
+        />
+
+        <!-- 抓取任务已创建 -->
+        <TaskCreatedCard
+          v-for="(block, index) in taskCreatedBlocks"
+          :key="`task-${index}`"
+          :task="block"
+        />
+
+        <!-- 抓取任务进度 -->
+        <TaskStatusCard
+          v-for="(block, index) in taskStatusBlocks"
+          :key="`status-${index}`"
+          :tasks="block.tasks"
         />
 
         <!-- 正文 -->
