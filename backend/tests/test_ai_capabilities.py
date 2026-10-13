@@ -132,18 +132,24 @@ class TestToolRegistry:
         assert "search_existing_jobs" in tool_names()
 
     def test_interview_mode_has_no_job_tools(self):
-        """面试辅导模式下不应暴露岗位相关工具，减少模型误调用。
+        """面试辅导模式下不应暴露**发起抓取/检索岗位**这类工具。
 
-        新工具默认不带 modes（即所有模式可用），所以这里逐个断言"哪些模式
-        不该有它"，而不是断言工具总数 —— 后者每加一个工具就要改，很脆弱。
+        注意 ``get_job_detail`` 是刻意保留的：分析简历与岗位匹配度时，
+        必须能读到目标岗位的 JD 全文。
         """
-        assert tools_for_mode("interview_coach") == []
+        coach_tools = {t.name for t in tools_for_mode("interview_coach")}
+        # 这些会改动数据或消耗抓取资源，面试辅导模式下不该出现
+        for forbidden in (
+            "search_existing_jobs",
+            "trigger_boss_scraper",
+            "check_task_status",
+        ):
+            assert forbidden not in coach_tools, f"{forbidden} 不该在面试辅导模式下暴露"
+        # 读 JD 是面试辅导的刚需
+        assert "get_job_detail" in coach_tools
 
         hunting = {t.name for t in tools_for_mode("job_hunting")}
         assert "search_existing_jobs" in hunting
-        # 抓取与查进度都属于"找岗位"流程，面试辅导模式下必须看不到
-        for name in ("trigger_boss_scraper", "check_task_status"):
-            assert name not in {t.name for t in tools_for_mode("interview_coach")}
 
     def test_get_tool(self):
         assert get_tool("search_existing_jobs") is not None
@@ -571,13 +577,35 @@ class TestRunnerToolLoop:
         # 关键：一次请求都没发出去
         assert adapter.call_count == 0
 
-    async def test_interview_mode_gets_no_tools(self):
+    async def test_interview_mode_only_gets_read_only_tools(self):
+        """面试辅导模式下只应拿到只读工具（读 JD），不该拿到抓取类工具。"""
         adapter = ScriptedAdapter([{"text": "诊断报告"}])
+        frames, result = await self._run(
+            adapter,
+            mode="interview_coach",
+            # 有工具就必须声明 tool_calls 能力，否则会被能力守卫（正确地）拦下
+            capabilities=["text", "tool_calls"],
+        )
+        tools = adapter.received_tools[0]
+        assert tools is not None, "面试辅导需要 get_job_detail，应传工具"
+        names = {t.name for t in tools}
+        assert names == {"get_job_detail"}
+        assert result.text == "诊断报告"
+
+    async def test_tools_without_capability_are_blocked(self):
+        """模型没声明 tool_calls 能力时，带工具的模式必须被拦下。
+
+        这是能力守卫的回归测试：拦截发生在**发起请求之前**，
+        否则用户会收到一个很难懂的 API 400。
+        """
+        adapter = ScriptedAdapter([{"text": "不该被调用"}])
         frames, result = await self._run(
             adapter, mode="interview_coach", capabilities=["text"]
         )
-        assert adapter.received_tools[0] is None
-        assert result.text == "诊断报告"
+        names = [name for name, _ in frames]
+        assert "error" in names
+        assert result.error_type == "unsupported_capability"
+        assert adapter.call_count == 0, "应在本地拦截，不发请求"
 
     async def test_usage_accumulates_across_rounds(self):
         """多轮时必须累加 token，否则只会记下最后一轮。"""

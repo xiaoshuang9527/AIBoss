@@ -181,6 +181,8 @@ class TriggerBossScraperTool(Tool):
                 "with_detail": with_detail,
                 "note": note or f"AI 对话发起（会话 #{context.conversation_id}）",
                 "auth_profile_id": profile.id,
+                # 记录发起它的对话，后台进度才能推回这里（P3）
+                "conversation_id": context.conversation_id,
                 "status": TaskStatus.PENDING.value,
                 "stage_text": "已入队，等待执行",
             },

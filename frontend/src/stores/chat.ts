@@ -8,6 +8,7 @@ import type {
   ChatConversation,
   ChatMessage,
   ChatToolCallRecord,
+  TaskStatusItem,
   ToolResultPayload,
 } from '@/types/chat'
 import type { ModelConfig } from '@/types/model'
@@ -58,6 +59,16 @@ export const useChatStore = defineStore('chat', () => {
   const streaming = ref<StreamingMessage | null>(null)
   /** 当前选用的模型（对话页顶部下拉框） */
   const selectedModelId = ref<number | null>(null)
+
+  /**
+   * 本会话进行中/最近的任务状态（由 WebSocket 实时更新）。
+   *
+   * 用途：任务发起后用户会一直盯着对话看进度，这里让它无需刷新页面就能看到
+   * 进度推进。key 是 task_id。
+   */
+  const liveTasks = ref<Record<number, TaskStatusItem>>({})
+  /** WebSocket 是否已连接（连接失败时界面应能提示"进度不实时"） */
+  const socketConnected = ref(false)
 
   let controller: AbortController | null = null
 
@@ -349,6 +360,24 @@ export const useChatStore = defineStore('chat', () => {
     streaming.value = null
   }
 
+  /**
+   * 接收 WebSocket 推来的任务进度。
+   *
+   * 刻意**覆盖式**更新（而不是增量）：服务端推的是任务的最新快照，
+   * 中间被节流丢弃的事件不需要补 —— 前端只关心"现在是什么状态"。
+   */
+  function applyTaskProgress(task: TaskStatusItem) {
+    if (!task?.task_id) return
+    liveTasks.value = { ...liveTasks.value, [task.task_id]: task }
+  }
+
+  /** 清掉已结束的实时任务卡片（用户手动关掉时用） */
+  function dismissLiveTask(taskId: number) {
+    const next = { ...liveTasks.value }
+    delete next[taskId]
+    liveTasks.value = next
+  }
+
   return {
     conversations,
     currentId,
@@ -360,6 +389,8 @@ export const useChatStore = defineStore('chat', () => {
     sending,
     streaming,
     selectedModelId,
+    liveTasks,
+    socketConnected,
     currentConversation,
     attachmentMap,
     enabledModels,
@@ -375,5 +406,7 @@ export const useChatStore = defineStore('chat', () => {
     uploadAttachment,
     send,
     stopStreaming,
+    applyTaskProgress,
+    dismissLiveTask,
   }
 })

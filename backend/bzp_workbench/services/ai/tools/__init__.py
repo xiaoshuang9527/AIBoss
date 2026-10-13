@@ -11,6 +11,7 @@
 from __future__ import annotations
 
 from .base import Tool, ToolContext, ToolError, ToolResult
+from .job_detail import GetJobDetailTool
 from .search_jobs import SearchExistingJobsTool
 from .task_status import CheckTaskStatusTool
 from .trigger_scraper import TriggerBossScraperTool
@@ -21,6 +22,7 @@ from .trigger_scraper import TriggerBossScraperTool
 #: 重操作（10-20 分钟，且高频抓取会触发风控），不该在通用对话里被误调用。
 _TOOLS: tuple[Tool, ...] = (
     SearchExistingJobsTool(),
+    GetJobDetailTool(),
     TriggerBossScraperTool(),
     CheckTaskStatusTool(),
 )
@@ -47,6 +49,7 @@ def tool_names() -> list[str]:
 
 __all__ = [
     "CheckTaskStatusTool",
+    "GetJobDetailTool",
     "SearchExistingJobsTool",
     "Tool",
     "ToolContext",

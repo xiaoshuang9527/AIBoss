@@ -4,19 +4,39 @@
  *
  * 布局：左侧会话列表 + 右侧消息流与输入区。
  *
- * P0 阶段说明：当前由**假模型 echo** 驱动（后端 `BZP_FAKE_LLM=true`），
- * 用来验证「上传 → 发送 → SSE 流式 → 渲染」整条链路。页头会明确标注这一点，
- * 避免误以为已经在用真实模型。
+ * 任务进度通过 `/api/ws/chat/{id}` 实时推送：AI 发起抓取后用户不必刷新页面，
+ * 进度条会自己往前走。这条通道只推**本会话**发起的任务（见后端 chat_events.py）。
  */
 import { computed, nextTick, onMounted, ref, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import MessageBubble from '@/components/chat/MessageBubble.vue'
 import Composer from '@/components/chat/Composer.vue'
 import ModelSwitcher from '@/components/chat/ModelSwitcher.vue'
+import TaskStatusCard from '@/components/chat/TaskStatusCard.vue'
+import { useChatSocket } from '@/composables/useChatSocket'
 import { useChatStore, MODE_OPTIONS } from '@/stores/chat'
 import type { ChatAttachment } from '@/types/chat'
 
 const store = useChatStore()
+
+// 对话级任务进度通道
+const socket = useChatSocket({
+  onTaskProgress: (payload) => store.applyTaskProgress(payload.task),
+})
+watch(socket.connected, (value) => {
+  store.socketConnected = value
+})
+// 切换会话时重连到对应的通道
+watch(
+  () => store.currentId,
+  (id) => socket.connect(id),
+)
+
+/** 进行中的任务（实时进度面板用） */
+const liveTaskList = computed(() =>
+  Object.values(store.liveTasks).sort((a, b) => b.task_id - a.task_id),
+)
+const hasLiveTasks = computed(() => liveTaskList.value.length > 0)
 
 const scrollArea = ref<HTMLDivElement | null>(null)
 const pendingAttachments = ref<ChatAttachment[]>([])
@@ -68,6 +88,9 @@ watch(
 onMounted(async () => {
   try {
     await store.initialize()
+    // initialize 可能已经选中了一个会话，此时 watch 不会触发（值没变），
+    // 所以这里显式连一次
+    socket.connect(store.currentId)
     await scrollToBottom()
   } catch {
     ElMessage.error('加载对话模块失败，请确认后端服务正常')
@@ -287,6 +310,11 @@ function timeLabel(value: string | null): string {
 
       <!-- 消息流 -->
       <div ref="scrollArea" class="chat__scroll">
+        <!-- 实时任务进度：置顶显示，任务跑完前一直可见 -->
+        <div v-if="hasLiveTasks" class="chat__live">
+          <TaskStatusCard :tasks="liveTaskList" />
+        </div>
+
         <div v-if="!renderedMessages.length && !store.streaming" class="chat__empty">
           <el-icon class="chat__empty-icon"><ChatDotRound /></el-icon>
           <h3>开始一段对话</h3>
@@ -500,6 +528,10 @@ function timeLabel(value: string | null): string {
   overflow-y: auto;
   padding: 20px 22px 8px;
   background: #fbfcfe;
+}
+
+.chat__live {
+  margin-bottom: 4px;
 }
 
 /* ---------- 空态 ---------- */

@@ -125,6 +125,17 @@ class ScrapeTask(Base):
     )
     auth_profile: Mapped[AuthProfile | None] = relationship(back_populates="tasks")
 
+    #: 由哪个 AI 对话发起的（为空表示从「创建抓取任务」页发起）。
+    #:
+    #: 用途：把任务进度推回发起它的那个对话。没有这个字段就无法回答
+    #: 「这条进度该发给哪个会话」，只能全局广播 —— 用户的多个对话会同时
+    #: 收到不相干的任务消息。
+    #:
+    #: 刻意不加 ForeignKey：对话可以被单独删除，而任务是有价值的抓取记录，
+    #: 不应该因为对话被删而受牵连（ON DELETE SET NULL 也行，但对话删除走的是
+    #: 应用层逻辑，加外键反而会让删除顺序变成隐式约束）。
+    conversation_id: Mapped[int | None] = mapped_column(Integer, nullable=True, index=True)
+
     created_at: Mapped[datetime] = _now_column()
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False

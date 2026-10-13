@@ -138,8 +138,34 @@ export interface TaskStatusPayload {
   tasks: TaskStatusItem[]
 }
 
+/** 单个岗位的完整 JD（tool: get_job_detail） */
+export interface JobDetailPayload {
+  id: number
+  job_id: string
+  title: string
+  company: string
+  salary: string
+  city: string | null
+  location: string | null
+  experience: string | null
+  degree: string | null
+  company_scale: string | null
+  company_stage: string | null
+  company_industry: string | null
+  boss_name: string | null
+  boss_active_status: string | null
+  welfare: string | null
+  job_duty: string | null
+  job_requirement: string | null
+  jd: string | null
+  job_link: string | null
+  has_detail: boolean
+  truncated: boolean
+}
+
 export type ToolResultPayload =
   | JobCardsPayload
+  | JobDetailPayload
   | TaskCreatedPayload
   | TaskStatusPayload
   | Record<string, unknown>

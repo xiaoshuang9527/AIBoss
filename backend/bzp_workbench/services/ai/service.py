@@ -72,6 +72,7 @@ DEFAULT_MODE = UNSET_MODE
 #: 前端按这些类型分发到对应卡片组件（见 MessageBubble.vue 的 payloads）。
 STRUCTURED_PAYLOAD_TYPES = (
     "job_cards",     # 岗位列表
+    "job_detail",    # 单个岗位的完整 JD
     "task_created",  # 抓取任务已创建
     "task_status",   # 抓取任务进度
     "resume",        # 简历解析结果（P4）

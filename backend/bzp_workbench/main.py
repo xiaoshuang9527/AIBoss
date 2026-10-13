@@ -33,6 +33,7 @@ from .db import SessionLocal, dispose_db, init_db
 from .enums import LogCategory, LogLevel
 from .services import repository as repo
 from .services.auth_service import ensure_default_profile
+from .services.ai.chat_events import chat_events
 from .services.logging_service import configure_logging, log_event
 from .services.queue_service import scan_stale_tasks, task_queue
 
@@ -71,6 +72,8 @@ async def lifespan(app: FastAPI):
         await ensure_default_profile(db)
 
     await task_queue.start()
+    # 启动对话事件中继：把全局任务事件按会话分发（P3）
+    chat_events.start_relay()
     maintenance = asyncio.create_task(_maintenance_loop(), name="bzp-maintenance")
 
     async with SessionLocal() as db:
@@ -86,6 +89,7 @@ async def lifespan(app: FastAPI):
         maintenance.cancel()
         with contextlib.suppress(asyncio.CancelledError):
             await maintenance
+        await chat_events.stop_relay()
         await task_queue.stop()
         await dispose_db()
 
