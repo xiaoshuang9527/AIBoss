@@ -123,10 +123,26 @@ def _extract_usage(raw: Any) -> TokenUsage:
     if not cached:
         cached = pick("prompt_cache_hit_tokens")  # DeepSeek 的字段名
 
+    # 思考过程的 token 数。DeepSeek 放在 completion_tokens_details.reasoning_tokens，
+    # 部分中转服务用平铺字段名。
+    reasoning = 0
+    completion_details = getattr(usage, "completion_tokens_details", None)
+    if completion_details is None and isinstance(usage, dict):
+        completion_details = usage.get("completion_tokens_details")
+    if completion_details is not None:
+        value = getattr(completion_details, "reasoning_tokens", None)
+        if value is None and isinstance(completion_details, dict):
+            value = completion_details.get("reasoning_tokens")
+        if isinstance(value, int):
+            reasoning = value
+    if not reasoning:
+        reasoning = pick("reasoning_tokens")
+
     return TokenUsage(
         prompt_tokens=pick("prompt_tokens", "input_tokens"),
         completion_tokens=pick("completion_tokens", "output_tokens"),
         cached_tokens=int(cached or 0),
+        reasoning_tokens=int(reasoning or 0),
     )
 
 

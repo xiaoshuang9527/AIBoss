@@ -9,6 +9,7 @@ import { computed, onMounted, reactive, ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { systemApi } from '@/api'
 import ModelManagerPanel from '@/components/models/ModelManagerPanel.vue'
+import UsagePanel from '@/components/chat/UsagePanel.vue'
 import { useModelStore } from '@/stores/model'
 import { useWorkbenchStore } from '@/stores/workbench'
 import { formatBytes, formatDateTime } from '@/utils/format'
@@ -18,7 +19,7 @@ const store = useWorkbenchStore()
 const modelStore = useModelStore()
 
 /** 当前 Tab。模型管理独立成一个 Tab，避免系统设置页被撑得过长 */
-const activeTab = ref<'system' | 'models'>('system')
+const activeTab = ref<'system' | 'models' | 'usage'>('system')
 
 const saving = ref(false)
 const loadingLogs = ref(false)
@@ -416,6 +417,22 @@ onMounted(async () => {
 
         <div class="settings__tab-body">
           <ModelManagerPanel />
+        </div>
+      </el-tab-pane>
+
+      <!-- ============================================================
+           Tab 3：用量统计（token 维度，不含任何计费概念）
+           ============================================================ -->
+      <el-tab-pane name="usage">
+        <template #label>
+          <span class="settings__tab-label">
+            <el-icon><DataLine /></el-icon>
+            用量统计
+          </span>
+        </template>
+
+        <div class="settings__tab-body">
+          <UsagePanel />
         </div>
       </el-tab-pane>
     </el-tabs>

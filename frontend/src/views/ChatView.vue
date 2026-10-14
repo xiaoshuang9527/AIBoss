@@ -38,6 +38,17 @@ const liveTaskList = computed(() =>
 )
 const hasLiveTasks = computed(() => liveTaskList.value.length > 0)
 
+/** 搜索：防抖 300ms，避免每敲一个字就打一次接口 */
+const searchInput = ref('')
+let searchTimer: number | null = null
+
+function onSearchInput(value: string) {
+  if (searchTimer !== null) window.clearTimeout(searchTimer)
+  searchTimer = window.setTimeout(() => {
+    void store.searchConversations(value)
+  }, 300)
+}
+
 const scrollArea = ref<HTMLDivElement | null>(null)
 const pendingAttachments = ref<ChatAttachment[]>([])
 
@@ -205,6 +216,20 @@ function timeLabel(value: string | null): string {
           <el-icon><Plus /></el-icon>
           新建对话
         </el-button>
+        <!-- 搜索：同时匹配标题与消息内容（见后端 list_conversations） -->
+        <el-input
+          v-model="searchInput"
+          size="small"
+          placeholder="搜索对话或消息内容"
+          clearable
+          class="chat__search"
+          @input="onSearchInput"
+          @clear="onSearchInput('')"
+        >
+          <template #prefix>
+            <el-icon><Search /></el-icon>
+          </template>
+        </el-input>
       </div>
 
       <div v-loading="store.loading" class="chat__list">
@@ -388,6 +413,10 @@ function timeLabel(value: string | null): string {
 
 .chat__new {
   width: 100%;
+}
+
+.chat__search {
+  margin-top: 8px;
 }
 
 .chat__list {

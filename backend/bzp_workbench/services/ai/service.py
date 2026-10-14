@@ -47,6 +47,7 @@ from .prompts import BASE_SYSTEM_PROMPT, INTERVIEW_COACH_PROMPT, JOB_HUNTING_PRO
 from .router import MODES, UNSET_MODE, RouteDecision, route
 from .runner import TurnResult, run_turn
 from .stream import SSEEvent, SSEFrame
+from .tokens import trim_messages
 from .tools.base import ToolContext
 from .stream import SSEEvent, SSEFrame
 
@@ -95,6 +96,7 @@ class StreamOutcome:
     prompt_tokens: int = 0
     completion_tokens: int = 0
     cached_tokens: int = 0
+    reasoning_tokens: int = 0
     finish_reason: str = "stop"
     latency_ms: int = 0
     error_type: str | None = None
@@ -124,12 +126,33 @@ async def get_conversation(db: AsyncSession, conversation_id: int) -> ChatConver
     return await db.get(ChatConversation, conversation_id)
 
 
-async def list_conversations(db: AsyncSession, limit: int = 50) -> list[ChatConversation]:
-    statement = (
-        select(ChatConversation)
-        .order_by(ChatConversation.updated_at.desc(), ChatConversation.id.desc())
-        .limit(limit)
-    )
+async def list_conversations(
+    db: AsyncSession, limit: int = 50, *, query: str | None = None
+) -> list[ChatConversation]:
+    """列出会话；``query`` 非空时按标题或消息内容搜索。
+
+    为什么搜消息内容而不只搜标题：用户往往记得"我问过 Docker 那个对话"，
+    而标题是自动生成的前 30 字，未必包含他记得的那个词。
+    """
+    statement = select(ChatConversation)
+
+    keyword = (query or "").strip()
+    if keyword:
+        # 标题命中 或 该会话下有消息命中
+        pattern = f"%{keyword}%"
+        subquery = (
+            select(ChatMessage.conversation_id)
+            .where(ChatMessage.content.like(pattern))
+            .scalar_subquery()
+        )
+        statement = statement.where(
+            ChatConversation.title.like(pattern)
+            | ChatConversation.id.in_(subquery)
+        )
+
+    statement = statement.order_by(
+        ChatConversation.updated_at.desc(), ChatConversation.id.desc()
+    ).limit(limit)
     return list((await db.execute(statement)).scalars().all())
 
 
@@ -213,16 +236,22 @@ async def persist_user_message(
 
 
 def _history_to_messages(history: list[ChatMessage]) -> list[Message]:
-    """把数据库历史转成适配器消息，并做上下文裁剪。"""
-    trimmed = history[-MAX_HISTORY_MESSAGES:]
+    """把数据库历史转成适配器消息。
+
+    这里**不做裁剪** —— 裁剪统一交给 :func:`trim_messages`，
+    因为它需要同时看到 system prompt 才能算准预算（而 system 是在
+    :func:`_build_context` 里才确定的）。两处各裁一次只会让行为难以推理。
+    """
     messages: list[Message] = []
-    for item in trimmed:
+    for item in history:
         if item.role == "user":
             messages.append(Message.user(item.content or ""))
         elif item.role == "assistant":
             if item.content:
                 messages.append(Message.assistant(item.content))
-        # system / tool 角色在 P0 不参与重建（工具循环 P2 才引入）
+        # system / tool 角色不参与重建：
+        # * system 由 system_prompt_for(mode) 统一提供，历史里的没有意义
+        # * tool 结果只在本轮有效，重建时无法还原其 tool_call_id 关联
     return messages
 
 
@@ -244,8 +273,26 @@ async def _build_context(
     if history and history[-1].role == "user":
         history = history[:-1]
 
-    messages: list[Message] = [Message.system(system_prompt_for(mode))]
-    messages.extend(_history_to_messages(history))
+    # System Prompt 由模式决定；历史消息按 **token 预算**裁剪后接在后面。
+    #
+    # 为什么不是简单地"保留最近 N 条"：一次岗位检索会把十条岗位的文本写进
+    # 历史，几轮下来 N 条也可能有几万 token。按预算裁剪才能真正挡住增长。
+    system_messages = [Message.system(system_prompt_for(mode))]
+    trim = trim_messages(
+        _history_to_messages(history),
+        system_messages=system_messages,
+    )
+    if trim.trimmed:
+        logger.info(
+            "上下文裁剪：会话=%s 丢弃 %s 条、压缩 %s 条工具结果，"
+            "估算 %s token（预算 %s）",
+            conversation.id,
+            trim.dropped_count,
+            trim.compressed_count,
+            trim.estimated_tokens,
+            trim.budget,
+        )
+    messages: list[Message] = list(trim.messages)
 
     attachments: list[ChatAttachment] = []
     if attachment_ids:
@@ -482,6 +529,7 @@ async def stream_reply(
         prompt_tokens=turn.prompt_tokens,
         completion_tokens=turn.completion_tokens,
         cached_tokens=turn.cached_tokens,
+        reasoning_tokens=turn.reasoning_tokens,
         finish_reason=turn.finish_reason,
         latency_ms=turn.latency_ms,
         error_type=turn.error_type,
@@ -499,6 +547,7 @@ async def stream_reply(
             "prompt_tokens": outcome.prompt_tokens,
             "completion_tokens": outcome.completion_tokens,
             "cached_tokens": outcome.cached_tokens,
+            "reasoning_tokens": outcome.reasoning_tokens,
             "latency_ms": outcome.latency_ms,
             "tool_rounds": len(outcome.tool_results),
         },
@@ -558,6 +607,7 @@ async def _persist_assistant_message(
         prompt_tokens=outcome.prompt_tokens,
         completion_tokens=outcome.completion_tokens,
         cached_tokens=outcome.cached_tokens,
+        reasoning_tokens=outcome.reasoning_tokens,
         latency_ms=outcome.latency_ms,
         error_type=outcome.error_type,
         error_message=outcome.error_message,

@@ -55,6 +55,9 @@ class TurnResult:
     prompt_tokens: int = 0
     completion_tokens: int = 0
     cached_tokens: int = 0
+    #: 输出里属于「思考过程」的部分（推理模型才有）。
+    #: 分开记才能回答"token 花在思考还是正文上"。
+    reasoning_tokens: int = 0
     finish_reason: str = "stop"
     latency_ms: int = 0
     error_type: str | None = None
@@ -189,6 +192,7 @@ async def run_turn(
                     result.prompt_tokens += chunk.usage.prompt_tokens
                     result.completion_tokens += chunk.usage.completion_tokens
                     result.cached_tokens += chunk.usage.cached_tokens
+                    result.reasoning_tokens += chunk.usage.reasoning_tokens
                 elif chunk.type is StreamEventType.DONE:
                     result.finish_reason = chunk.finish_reason or "stop"
         except LLMError as exc:

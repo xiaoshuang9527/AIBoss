@@ -69,6 +69,8 @@ export const useChatStore = defineStore('chat', () => {
   const liveTasks = ref<Record<number, TaskStatusItem>>({})
   /** WebSocket 是否已连接（连接失败时界面应能提示"进度不实时"） */
   const socketConnected = ref(false)
+  /** 会话搜索关键词（空表示不过滤） */
+  const searchQuery = ref('')
 
   let controller: AbortController | null = null
 
@@ -118,7 +120,18 @@ export const useChatStore = defineStore('chat', () => {
   }
 
   async function refreshConversations() {
-    conversations.value = await chatApi.listConversations()
+    conversations.value = await chatApi.listConversations(50, searchQuery.value || undefined)
+  }
+
+  /**
+   * 搜索会话（按标题或消息内容）。
+   *
+   * 搜消息内容而不只搜标题是刻意的：用户往往记得"我问过 Docker 那个对话"，
+   * 而标题是自动生成的首条消息前 30 字，未必包含他记得的那个词。
+   */
+  async function searchConversations(query: string) {
+    searchQuery.value = query
+    conversations.value = await chatApi.listConversations(50, query || undefined)
   }
 
   async function selectConversation(id: number) {
@@ -391,12 +404,14 @@ export const useChatStore = defineStore('chat', () => {
     selectedModelId,
     liveTasks,
     socketConnected,
+    searchQuery,
     currentConversation,
     attachmentMap,
     enabledModels,
     canSend,
     initialize,
     refreshConversations,
+    searchConversations,
     selectConversation,
     createConversation,
     removeConversation,

@@ -442,6 +442,10 @@ class ChatMessage(Base):
     prompt_tokens: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     completion_tokens: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     cached_tokens: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    #: 输出里属于「思考过程」的部分（推理模型）。
+    #: 单独存才能看出"token 花在思考还是正文上"—— 实测推理模型的思考
+    #: 常占输出的绝大部分，这是成本看板最有价值的一列。
+    reasoning_tokens: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     latency_ms: Mapped[int | None] = mapped_column(Integer, nullable=True)
 
     #: 失败时的错误分类与提示（复用 llm/errors.py 的分类）

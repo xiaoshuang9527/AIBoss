@@ -77,6 +77,8 @@ async def init_db() -> None:
 _ADDED_COLUMNS: tuple[tuple[str, str, str], ...] = (
     # 记录任务是由哪个对话发起的，用于把进度推回该对话（P3）
     ("scrape_tasks", "conversation_id", "INTEGER"),
+    # 思考过程的 token 数，用于成本看板（P6）
+    ("chat_messages", "reasoning_tokens", "INTEGER NOT NULL DEFAULT 0"),
 )
 
 

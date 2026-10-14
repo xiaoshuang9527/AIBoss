@@ -76,10 +76,27 @@ def to_message_read(row: ChatMessage) -> ChatMessageRead:
 # ============================================================
 @router.get("/conversations")
 async def list_conversations(
-    db: AsyncSession = Depends(get_db), limit: int = Query(50, ge=1, le=200)
+    db: AsyncSession = Depends(get_db),
+    limit: int = Query(50, ge=1, le=200),
+    q: str | None = Query(None, max_length=64, description="按标题或消息内容搜索"),
 ):
-    rows = await chat_service.list_conversations(db, limit=limit)
+    rows = await chat_service.list_conversations(db, limit=limit, query=q)
     return ok([ChatConversationRead.model_validate(row).model_dump() for row in rows])
+
+
+@router.get("/usage")
+async def usage(
+    db: AsyncSession = Depends(get_db),
+    days: int = Query(14, ge=1, le=180, description="统计最近多少天"),
+):
+    """用量统计（token 维度）。
+
+    刻意叫「用量」而不是「成本」：这是纯个人求职辅助工具，**不做金额换算、
+    不设预算、不出现额度/计费字眼**。这里只回答"我用了多少 token、花在哪"。
+    """
+    from ..services.ai.analytics import usage_report
+
+    return ok(await usage_report(db, days=days))
 
 
 @router.post("/conversations")

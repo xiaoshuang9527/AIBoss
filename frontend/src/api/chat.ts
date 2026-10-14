@@ -6,6 +6,7 @@ import type {
   ChatConversation,
   ChatMessage,
   ConversationDetail,
+  UsageReport,
 } from '@/types/chat'
 import type { SSEMetaData, SSEErrorData, SSEUsageData, SSEToolCallData, SSEToolResultData } from '@/types/chat'
 
@@ -25,7 +26,11 @@ function form(body: Record<string, string | number | boolean | undefined>): Form
 export const chatApi = {
   config: () => get<ChatConfig>('/chat/config'),
 
-  listConversations: (limit = 50) => get<ChatConversation[]>('/chat/conversations', { limit }),
+  listConversations: (limit = 50, query?: string) =>
+    get<ChatConversation[]>('/chat/conversations', { limit, q: query || undefined }),
+
+  /** 用量统计（token 维度，不含任何计费/额度概念） */
+  usage: (days = 14) => get<UsageReport>('/chat/usage', { days }),
 
   createConversation: (title = '新对话', modelConfigId?: number) =>
     post<ChatConversation>(

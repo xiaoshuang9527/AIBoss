@@ -114,6 +114,13 @@ class TokenUsage:
     prompt_tokens: int = 0
     completion_tokens: int = 0
     cached_tokens: int = 0
+    #: 输出里属于「思考过程」的部分（推理模型才有）。
+    #:
+    #: 为什么要单独记：``deepseek-flash`` 这类推理模型，思考阶段的输出经常
+    #: 比正文还多（实测一次回答 68 个思考分片 vs 9 个正文分片）。
+    #: 混在 completion_tokens 里看不出问题，分开记才能回答
+    #: "我的 token 到底花在哪了" —— 这正是成本看板要回答的问题。
+    reasoning_tokens: int = 0
 
     @property
     def total_tokens(self) -> int:

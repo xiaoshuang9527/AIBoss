@@ -231,6 +231,74 @@ export type ToolResultPayload =
   | MatchReportPayload
   | Record<string, unknown>
 
+/* ---------------- 用量统计 ---------------- */
+
+/**
+ * 用量统计（token 维度）。
+ *
+ * 注意：这是一个个人求职辅助工具，**没有计费/额度/套餐概念**。
+ * 这些字段只用于回答"我用了多少 token、花在哪"。
+ */
+export interface UsageTotals {
+  conversations: number
+  assistant_messages: number
+  prompt_tokens: number
+  completion_tokens: number
+  cached_tokens: number
+  /** 输出里属于思考过程的部分（推理模型才有） */
+  reasoning_tokens: number
+  total_tokens: number
+  /** 缓存命中率：命中部分单价更低，越高越省 */
+  cache_hit_rate: number
+  /** 思考占输出的比例：推理模型里这一项经常很高 */
+  reasoning_share: number
+}
+
+export interface UsageDailyPoint {
+  date: string
+  messages: number
+  prompt_tokens: number
+  completion_tokens: number
+  reasoning_tokens: number
+  cached_tokens: number
+  total_tokens: number
+}
+
+export interface UsageByModel {
+  model_label: string
+  messages: number
+  prompt_tokens: number
+  completion_tokens: number
+  reasoning_tokens: number
+  total_tokens: number
+  avg_latency_ms: number
+}
+
+export interface UsageTopConversation {
+  conversation_id: number
+  title: string
+  mode: string
+  messages: number
+  prompt_tokens: number
+  completion_tokens: number
+  total_tokens: number
+}
+
+export interface UsageToolStat {
+  name: string
+  calls: number
+}
+
+export interface UsageReport {
+  days: number
+  generated_at: string
+  totals: UsageTotals
+  daily: UsageDailyPoint[]
+  by_model: UsageByModel[]
+  top_conversations: UsageTopConversation[]
+  tools: UsageToolStat[]
+}
+
 export type AttachmentKind = 'image' | 'pdf' | 'docx' | 'text' | 'unsupported'
 
 export type ExtractStatus = 'pending' | 'done' | 'failed' | 'not_applicable'
