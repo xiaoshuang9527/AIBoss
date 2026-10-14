@@ -163,11 +163,72 @@ export interface JobDetailPayload {
   truncated: boolean
 }
 
+/** 匹配度诊断报告里的一个维度 */
+export interface MatchDimension {
+  name: string
+  level: 'match' | 'partial' | 'mismatch'
+  summary: string
+  evidence: string[]
+  gaps: string[]
+}
+
+export interface MatchRisk {
+  risk: string
+  why: string
+  how_to_handle: string
+}
+
+export interface StarFramework {
+  situation: string
+  task: string
+  action: string
+  result: string
+}
+
+export interface MatchQuestion {
+  question: string
+  category: string
+  focus: string
+  star: StarFramework
+  tips: string
+}
+
+export interface MatchReport {
+  verdict: string
+  /** null 表示解析失败、没有可信评分（不要当成 0 分显示） */
+  overall_score: number | null
+  dimensions: MatchDimension[]
+  strengths: string[]
+  risks: MatchRisk[]
+  questions: MatchQuestion[]
+  actions: string[]
+  /** 模型输出不是合法 JSON 时为 true，此时界面应提示格式异常 */
+  parse_error?: boolean
+  raw_text?: string
+}
+
+/** 《匹配度诊断报告》（tool: analyze_match） */
+export interface MatchReportPayload {
+  report: MatchReport
+  job: {
+    id: number
+    title: string
+    company: string
+    salary: string
+    city: string | null
+    job_link: string | null
+  } | null
+  resume_source: string
+  jd_source: string
+  question_count: number
+}
+
 export type ToolResultPayload =
   | JobCardsPayload
   | JobDetailPayload
   | TaskCreatedPayload
   | TaskStatusPayload
+  | MatchReportPayload
   | Record<string, unknown>
 
 export type AttachmentKind = 'image' | 'pdf' | 'docx' | 'text' | 'unsupported'

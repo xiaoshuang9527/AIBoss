@@ -578,7 +578,10 @@ class TestRunnerToolLoop:
         assert adapter.call_count == 0
 
     async def test_interview_mode_only_gets_read_only_tools(self):
-        """面试辅导模式下只应拿到只读工具（读 JD），不该拿到抓取类工具。"""
+        """面试辅导模式下只应拿到**只读**工具，不该拿到抓取类工具。
+
+        只读工具包括读 JD 与生成诊断报告 —— 两者都不改动数据、不消耗抓取资源。
+        """
         adapter = ScriptedAdapter([{"text": "诊断报告"}])
         frames, result = await self._run(
             adapter,
@@ -587,9 +590,11 @@ class TestRunnerToolLoop:
             capabilities=["text", "tool_calls"],
         )
         tools = adapter.received_tools[0]
-        assert tools is not None, "面试辅导需要 get_job_detail，应传工具"
+        assert tools is not None, "面试辅导需要工具，应传工具定义"
         names = {t.name for t in tools}
-        assert names == {"get_job_detail"}
+        assert names == {"get_job_detail", "analyze_match"}
+        # 抓取类工具绝对不能出现
+        assert "trigger_boss_scraper" not in names
         assert result.text == "诊断报告"
 
     async def test_tools_without_capability_are_blocked(self):

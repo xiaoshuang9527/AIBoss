@@ -75,7 +75,8 @@ STRUCTURED_PAYLOAD_TYPES = (
     "job_detail",    # 单个岗位的完整 JD
     "task_created",  # 抓取任务已创建
     "task_status",   # 抓取任务进度
-    "resume",        # 简历解析结果（P4）
+    "match_report",  # 简历 × 岗位匹配度诊断报告（P4）
+    "resume",        # 简历解析结果
 )
 
 
@@ -453,6 +454,8 @@ async def stream_reply(
         conversation_id=conversation.id,
         model_config_id=config.id,
         slot_state=_loads(conversation.slot_state, {}),
+        # 需要二次调模型的工具（analyze_match）用它
+        adapter=driver,
     )
 
     turn = TurnResult()

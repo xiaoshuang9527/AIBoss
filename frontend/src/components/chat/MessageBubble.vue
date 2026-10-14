@@ -13,11 +13,13 @@ import JobResultCards from './JobResultCards.vue'
 import JobDetailCard from './JobDetailCard.vue'
 import TaskCreatedCard from './TaskCreatedCard.vue'
 import TaskStatusCard from './TaskStatusCard.vue'
+import MatchReportCard from './MatchReportCard.vue'
 import type {
   ChatAttachment,
   ChatMessage,
   JobCardsPayload,
   JobDetailPayload,
+  MatchReportPayload,
   TaskCreatedPayload,
   TaskStatusPayload,
 } from '@/types/chat'
@@ -66,7 +68,7 @@ const messageAttachments = computed(() => {
  * 统一成一个带 kind 判别的列表，模板里按 kind 分发到对应卡片组件。
  */
 interface TypedPayload {
-  kind: 'job_cards' | 'job_detail' | 'task_created' | 'task_status'
+  kind: 'job_cards' | 'job_detail' | 'task_created' | 'task_status' | 'match_report'
   data: unknown
 }
 
@@ -82,8 +84,10 @@ const payloads = computed<TypedPayload[]>(() => {
       list.push({ kind: 'task_created', data: raw })
     } else if (Array.isArray(raw?.tasks)) {
       list.push({ kind: 'task_status', data: raw })
+    } else if (raw && typeof raw === 'object' && 'report' in raw) {
+      // match_report 的判别字段：report 只有它独有
+      list.push({ kind: 'match_report', data: raw })
     } else if (raw && typeof raw === 'object' && 'has_detail' in raw) {
-      // job_detail 的判别字段：has_detail 只有它独有
       list.push({ kind: 'job_detail', data: raw })
     }
   }
@@ -99,7 +103,8 @@ const payloads = computed<TypedPayload[]>(() => {
       kind === 'job_cards' ||
       kind === 'job_detail' ||
       kind === 'task_created' ||
-      kind === 'task_status'
+      kind === 'task_status' ||
+      kind === 'match_report'
     ) {
       list.push({ kind, data: contentData.data })
     }
@@ -107,6 +112,12 @@ const payloads = computed<TypedPayload[]>(() => {
 
   return list
 })
+
+const matchReportBlocks = computed(() =>
+  payloads.value
+    .filter((item) => item.kind === 'match_report')
+    .map((item) => item.data as MatchReportPayload),
+)
 
 const jobCardBlocks = computed(() =>
   payloads.value
@@ -215,6 +226,13 @@ function toolArgs(call: { arguments: Record<string, unknown> }): string {
           :jobs="block.jobs"
           :total="block.total"
           :query="block.query"
+        />
+
+        <!-- 匹配度诊断报告 -->
+        <MatchReportCard
+          v-for="(block, index) in matchReportBlocks"
+          :key="`match-${index}`"
+          :payload="block"
         />
 
         <!-- 单个岗位的完整 JD -->

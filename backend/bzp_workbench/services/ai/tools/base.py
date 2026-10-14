@@ -72,6 +72,14 @@ class ToolContext:
     model_config_id: int
     #: 会话的槽位台账，工具可以读（例如把用户意图补进去）
     slot_state: dict[str, Any] = field(default_factory=dict)
+    #: 当前使用的 LLM 适配器（可选）。
+    #:
+    #: 只有需要**在工具内部再调一次模型**的工具才用得到 —— 目前是
+    #: ``analyze_match``（要产出一份结构化的匹配度诊断报告，不能靠主模型的
+    #: 自由文本，否则前端没法稳定渲染）。
+    #:
+    #: 为 None 时那些工具应给出明确的降级提示，而不是抛异常。
+    adapter: Any = None
 
 
 class Tool(ABC):

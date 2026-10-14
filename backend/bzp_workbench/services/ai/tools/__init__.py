@@ -12,6 +12,7 @@ from __future__ import annotations
 
 from .base import Tool, ToolContext, ToolError, ToolResult
 from .job_detail import GetJobDetailTool
+from .match import AnalyzeMatchTool
 from .search_jobs import SearchExistingJobsTool
 from .task_status import CheckTaskStatusTool
 from .trigger_scraper import TriggerBossScraperTool
@@ -25,6 +26,7 @@ _TOOLS: tuple[Tool, ...] = (
     GetJobDetailTool(),
     TriggerBossScraperTool(),
     CheckTaskStatusTool(),
+    AnalyzeMatchTool(),
 )
 
 _REGISTRY: dict[str, Tool] = {tool.name: tool for tool in _TOOLS}
@@ -48,6 +50,7 @@ def tool_names() -> list[str]:
 
 
 __all__ = [
+    "AnalyzeMatchTool",
     "CheckTaskStatusTool",
     "GetJobDetailTool",
     "SearchExistingJobsTool",
