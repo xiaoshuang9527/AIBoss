@@ -382,24 +382,61 @@ class TestRoute:
 # 能力守卫
 # ============================================================
 class TestCapabilityGuard:
-    def test_passes_when_capable(self):
-        guard_capabilities(["text", "vision", "tool_calls"], has_images=True, has_tools=True, model_label="m")
+    """能力校验：区分「致命」与「可降级」。
 
-    def test_rejects_image_without_vision(self):
+    这是**回归测试**。早先工具缺失被当成致命错误，结果是"换了个只能文本
+    的模型，连普通问题都问不了" —— 用户只会认为模型坏了（实际案例：
+    问「n8n 和 dify 是什么」被一句能力标签的提示挡住）。
+    工具是可选增强，模型缺它仍应能回答文本问题。
+    """
+
+    def test_passes_when_capable(self):
+        decision = guard_capabilities(
+            ["text", "vision", "tool_calls"],
+            has_images=True,
+            tool_names=["search_existing_jobs"],
+            model_label="m",
+        )
+        assert decision.dropped_tools == []
+        assert decision.notice == ""
+
+    def test_image_without_vision_is_fatal(self):
+        """视觉缺失没有降级余地：图片已经传进来了，模型看不到就是看不到。"""
         with pytest.raises(LLMError) as excinfo:
-            guard_capabilities(["text"], has_images=True, has_tools=False, model_label="慢模型")
+            guard_capabilities(["text"], has_images=True, tool_names=[], model_label="慢模型")
         assert excinfo.value.error_type is LLMErrorType.UNSUPPORTED_CAPABILITY
         assert "看图" in excinfo.value.message
-        # 提示要告诉用户怎么办
         assert "模型管理" in (excinfo.value.detail or "")
 
-    def test_rejects_tools_without_tool_calls(self):
-        with pytest.raises(LLMError) as excinfo:
-            guard_capabilities(["text"], has_images=False, has_tools=True, model_label="m")
-        assert "工具调用" in excinfo.value.message
+    def test_tools_without_tool_calls_degrades_instead_of_failing(self):
+        """工具缺失应**降级**为纯对话，而不是拒绝整个请求。"""
+        decision = guard_capabilities(
+            ["text"],
+            has_images=False,
+            tool_names=["search_existing_jobs", "get_job_detail"],
+            model_label="Agnes",
+        )
+        assert decision.dropped_tools == ["search_existing_jobs", "get_job_detail"]
+        assert decision.tools is None
+        # 必须给模型一段提示，否则它会假装调用工具或编造数据
+        assert "没有可用工具" in decision.notice
+        assert "禁止声称" in decision.notice
+
+    def test_tools_present_when_capable(self):
+        decision = guard_capabilities(
+            ["text", "tool_calls"],
+            has_images=False,
+            tool_names=["search_existing_jobs"],
+            model_label="DeepSeek",
+        )
+        assert decision.dropped_tools == []
+        assert decision.tools is None  # tools 由调用方填充
 
     def test_no_guard_when_nothing_needed(self):
-        guard_capabilities(["text"], has_images=False, has_tools=False, model_label="m")
+        decision = guard_capabilities(
+            ["text"], has_images=False, tool_names=[], model_label="m"
+        )
+        assert decision.dropped_tools == []
 
 
 # ============================================================
@@ -597,20 +634,64 @@ class TestRunnerToolLoop:
         assert "trigger_boss_scraper" not in names
         assert result.text == "诊断报告"
 
-    async def test_tools_without_capability_are_blocked(self):
-        """模型没声明 tool_calls 能力时，带工具的模式必须被拦下。
+    async def test_tools_without_capability_degrade_to_plain_chat(self):
+        """模型没声明 tool_calls 时，本轮应**降级为纯对话**而不是失败。
 
-        这是能力守卫的回归测试：拦截发生在**发起请求之前**，
-        否则用户会收到一个很难懂的 API 400。
+        **回归测试**：真实案例是用户切到一个只声明了文本能力的模型，
+        问了句「n8n 和 dify 是什么」，结果只看到一句
+        「缺少能力：工具调用（tool_calls）」—— 普通问答根本不需要工具。
+
+        正确行为：
+        * 不报错，正常出文本
+        * **不把工具定义传给适配器**（否则适配器自身的前置校验也会拒绝）
+        * 注入一段提示，要求模型如实说明自己无法查数据，而不是编造
         """
-        adapter = ScriptedAdapter([{"text": "不该被调用"}])
+        adapter = ScriptedAdapter([{"text": "n8n 是工作流自动化平台"}])
         frames, result = await self._run(
             adapter, mode="interview_coach", capabilities=["text"]
         )
         names = [name for name, _ in frames]
-        assert "error" in names
-        assert result.error_type == "unsupported_capability"
-        assert adapter.call_count == 0, "应在本地拦截，不发请求"
+        assert "error" not in names, "降级后不该再报能力错误"
+        assert result.text == "n8n 是工作流自动化平台"
+        assert adapter.call_count == 1, "应当真的发出了请求"
+
+        # 关键：传给适配器的 tools 必须是 None，否则适配器的
+        # assert_capabilities 会再次抛错
+        assert adapter.received_tools[0] is None
+
+        # 必须注入限制说明，否则模型可能假装调用工具或编造数据
+        sent_system = " ".join(
+            m.content or "" for m in adapter.received_messages[0]
+            if m.role is Role.SYSTEM
+        )
+        assert "没有可用工具" in sent_system
+
+    async def test_tools_without_capability_emits_notice(self):
+        """降级时要给前端一条 notice 事件，让用户知道发生了什么。
+
+        没有它的话，用户问"帮我找岗位"只会得到"我查不了"，
+        完全不明白为什么 —— 这正是能力标签提示最容易被忽略的地方。
+        """
+        adapter = ScriptedAdapter([{"text": "我无法查询岗位库"}])
+        frames, _ = await self._run(
+            adapter, mode="interview_coach", capabilities=["text"]
+        )
+        notices = [data for name, data in frames if name == "notice"]
+        assert len(notices) == 1
+        notice = notices[0]
+        assert notice["kind"] == "tools_dropped"
+        assert notice["dropped_tools"]
+        assert "工具调用" in notice["message"]
+        # 必须给出两条可操作路径：勾能力 或 换模型
+        assert "勾选" in (notice["suggestion"] or "")
+        assert "切换" in (notice["suggestion"] or "")
+
+    async def test_no_notice_when_model_supports_tools(self):
+        adapter = ScriptedAdapter([{"text": "好的"}])
+        frames, _ = await self._run(
+            adapter, mode="job_hunting", capabilities=["text", "tool_calls"]
+        )
+        assert not [data for name, data in frames if name == "notice"]
 
     async def test_usage_accumulates_across_rounds(self):
         """多轮时必须累加 token，否则只会记下最后一轮。"""

@@ -44,6 +44,8 @@ const errorMessage = computed(
   () => props.streaming?.errorMessage ?? props.message?.error_message ?? null,
 )
 const errorSuggestion = computed(() => props.streaming?.errorSuggestion ?? null)
+/** 降级说明（工具能力被放弃等） */
+const notice = computed(() => props.streaming?.notice ?? null)
 const modelLabel = computed(
   () => props.streaming?.modelLabel ?? props.message?.model_label ?? null,
 )
@@ -266,6 +268,20 @@ function toolArgs(call: { arguments: Record<string, unknown> }): string {
         <!-- 光标：表示还在流式输出 -->
         <span v-if="active && text" class="msg__cursor" />
 
+        <!-- 降级说明：不是错误，是"某项能力这轮没有" -->
+        <el-alert
+          v-if="notice"
+          type="warning"
+          :closable="false"
+          show-icon
+          class="msg__notice"
+        >
+          <template #title>{{ notice.message }}</template>
+          <template v-if="notice.suggestion" #default>
+            <div class="msg__notice-suggestion">{{ notice.suggestion }}</div>
+          </template>
+        </el-alert>
+
         <!-- 错误提示 -->
         <el-alert
           v-if="errorMessage"
@@ -445,6 +461,14 @@ function toolArgs(call: { arguments: Record<string, unknown> }): string {
 
 .msg__error {
   margin-top: 10px;
+}
+
+.msg__notice {
+  margin-bottom: 10px;
+}
+
+.msg__notice-suggestion {
+  line-height: 1.7;
 }
 
 .msg__error-suggestion {

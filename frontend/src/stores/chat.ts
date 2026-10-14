@@ -42,6 +42,8 @@ export interface StreamingMessage {
   errorType: string | null
   errorMessage: string | null
   errorSuggestion: string | null
+  /** 降级说明（如"模型不支持工具调用，本轮只做纯文本"） */
+  notice: { message: string; suggestion?: string } | null
   active: boolean
   /** 是否已收到过正文（决定思考区默认折叠） */
   hasText: boolean
@@ -256,6 +258,7 @@ export const useChatStore = defineStore('chat', () => {
       errorType: null,
       errorMessage: null,
       errorSuggestion: null,
+      notice: null,
       active: true,
       hasText: false,
     }
@@ -291,6 +294,14 @@ export const useChatStore = defineStore('chat', () => {
         // 只保留有结构化数据的载荷 —— 纯文本结果（如工具报错）不值得单独渲染
         if (data.data && data.payload_type !== 'text') {
           streaming.value?.toolResults.push(data.data)
+        }
+      },
+      onNotice: (data) => {
+        if (streaming.value) {
+          streaming.value.notice = {
+            message: data.message,
+            suggestion: data.suggestion,
+          }
         }
       },
       onError: (data) => {

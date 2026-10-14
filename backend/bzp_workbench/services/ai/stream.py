@@ -13,6 +13,7 @@ SSE 天然贴合这个模型，且能复用现有的 Nginx 配置（只需关 ``
 * ``text``        —— 正文增量
 * ``tool_call``   —— 模型发起工具调用
 * ``tool_result`` —— 工具返回结果（含结构化载荷）
+* ``notice``      —— 降级说明（不是失败，但用户需要知道某项能力被放弃）
 * ``usage``       —— token 用量
 * ``done``        —— 正常结束
 * ``error``       —— 失败（复用 llm/errors.py 的分类与修复建议）
@@ -32,6 +33,11 @@ class SSEEvent(str, Enum):
     TEXT = "text"
     TOOL_CALL = "tool_call"
     TOOL_RESULT = "tool_result"
+    #: 降级说明（例如模型不支持工具调用，本轮只能纯对话）。
+    #:
+    #: 与 ``error`` 区分：这不是失败，请求正常完成，只是某些能力被放弃了。
+    #: 前端应显示成一条低调的提示，而不是红色报错。
+    NOTICE = "notice"
     USAGE = "usage"
     DONE = "done"
     ERROR = "error"

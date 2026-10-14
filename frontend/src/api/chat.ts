@@ -8,7 +8,7 @@ import type {
   ConversationDetail,
   UsageReport,
 } from '@/types/chat'
-import type { SSEMetaData, SSEErrorData, SSEUsageData, SSEToolCallData, SSEToolResultData } from '@/types/chat'
+import type { SSEMetaData, SSEErrorData, SSEUsageData, SSEToolCallData, SSEToolResultData, SSENoticeData } from '@/types/chat'
 
 const BASE = import.meta.env.VITE_API_BASE || '/api'
 
@@ -85,6 +85,8 @@ export interface StreamHandlers {
   onText?: (delta: string) => void
   onToolCall?: (data: SSEToolCallData) => void
   onToolResult?: (data: SSEToolResultData) => void
+  /** 降级说明（不是失败，但用户需要知道） */
+  onNotice?: (data: SSENoticeData) => void
   onUsage?: (data: SSEUsageData) => void
   onDone?: (finishReason: string) => void
   onError?: (data: SSEErrorData) => void
@@ -229,6 +231,9 @@ function dispatch(block: string, handlers: StreamHandlers): void {
       break
     case 'tool_result':
       handlers.onToolResult?.(data as unknown as SSEToolResultData)
+      break
+    case 'notice':
+      handlers.onNotice?.(data as unknown as SSENoticeData)
       break
     case 'usage':
       handlers.onUsage?.(data as unknown as SSEUsageData)

@@ -80,32 +80,69 @@ def trim_history(messages: list[Message], limit: int = MAX_HISTORY_MESSAGES) -> 
     return systems + keep
 
 
+@dataclass
+class CapabilityDecision:
+    """能力校验的结论。"""
+
+    #: 需要传给模型的工具定义；为空表示不带工具
+    tools: list | None = None
+    #: 因为模型不支持而被放弃的工具名（用于提示用户）
+    dropped_tools: list[str] = field(default_factory=list)
+    #: 降级时插入的提示文本（告诉模型"你这轮没有工具"，避免它假装调用）
+    notice: str = ""
+
+
 def guard_capabilities(
     model_capabilities: list[str],
     *,
     has_images: bool,
-    has_tools: bool,
-    model_label: str,
-) -> None:
-    """发请求前校验模型能力，缺失时抛可读的 :class:`LLMError`。"""
-    missing: list[str] = []
-    if has_images and "vision" not in model_capabilities:
-        missing.append("看图（vision）")
-    if has_tools and "tool_calls" not in model_capabilities:
-        missing.append("工具调用（tool_calls）")
+    tool_names: list[str] | None = None,
+    model_label: str = "",
+) -> CapabilityDecision:
+    """发请求前校验模型能力。
 
-    if not missing:
-        return
+    区分「致命」与「可降级」
+    ------------------------
+    * **视觉（vision）缺失 → 致命**。图片已经传进来了，模型看不到就是看不到，
+      没有降级余地，只能让用户换模型。
+    * **工具调用（tool_calls）缺失 → 可降级**。工具是**可选增强**：
+      用户问「n8n 和 dify 是什么」根本不需要查岗位库。
+      早先把它当致命错误，结果是"换了个模型连普通问题都问不了" ——
+      用户只会认为模型坏了，而真实原因藏在一句能力标签的提示里。
 
-    raise LLMError(
-        LLMErrorType.UNSUPPORTED_CAPABILITY,
-        f"当前模型「{model_label}」缺少能力：{'、'.join(missing)}",
-        detail=(
-            "请到「系统设置 → 模型管理」为该模型勾选对应能力标签，"
-            "或在对话页顶部切换到支持该能力的模型。"
-            + ("（你上传了图片，需要支持「看图」的模型）" if has_images else "")
-        ),
-    )
+    降级时会返回一段 ``notice`` 文本，由调用方注入上下文，
+    告诉模型"这轮没有工具，直接回答，别假装调用"。
+    """
+    capabilities = set(model_capabilities or [])
+    names = list(tool_names or [])
+
+    # ---- 视觉：缺失就真的没救 ----
+    if has_images and "vision" not in capabilities:
+        raise LLMError(
+            LLMErrorType.UNSUPPORTED_CAPABILITY,
+            f"当前模型「{model_label}」不支持看图，无法处理你上传的图片",
+            detail=(
+                "请到「系统设置 → 模型管理」为该模型勾选「看图」能力"
+                "（仅当它确实支持图像输入时），或在对话页顶部切换到支持看图的模型。"
+            ),
+        )
+
+    # ---- 工具：缺失则降级为纯对话 ----
+    if names and "tool_calls" not in capabilities:
+        return CapabilityDecision(
+            tools=None,
+            dropped_tools=names,
+            notice=(
+                "【本轮限制】当前模型未声明「工具调用」能力，因此这轮**没有可用工具**。\n"
+                "请直接基于你自己的知识回答用户的问题。\n"
+                "禁止声称你查询了岗位库、发起了抓取任务或读取了任何数据 —— "
+                "你并没有这些能力。如果用户的问题确实需要查询数据，"
+                "请如实说明当前模型不支持工具调用，建议他在模型管理里为该模型"
+                "勾选该能力（若确实支持）或切换到其他模型。"
+            ),
+        )
+
+    return CapabilityDecision(tools=None)  # tools 由调用方填充
 
 
 async def run_turn(
@@ -144,11 +181,12 @@ async def run_turn(
     has_images = any(message.images for message in working)
 
     # ---- 能力守卫 ----
+    # 视觉缺失是致命的；工具调用缺失则降级为纯对话（见 guard_capabilities 的说明）
     try:
-        guard_capabilities(
+        decision = guard_capabilities(
             capabilities,
             has_images=has_images,
-            has_tools=bool(tool_definitions),
+            tool_names=[tool.name for tool in tools],
             model_label=model_label or "当前模型",
         )
     except LLMError as exc:
@@ -158,6 +196,34 @@ async def run_turn(
         result.latency_ms = int((time.monotonic() - started) * 1000)
         yield SSEFrame(SSEEvent.ERROR, exc.to_payload())
         return
+
+    # 模型不支持工具调用时，本轮降级为纯对话
+    if decision.dropped_tools:
+        logger.info(
+            "模型「%s」未声明 tool_calls，本轮降级为纯对话（放弃 %s 个工具：%s）",
+            model_label,
+            len(decision.dropped_tools),
+            "、".join(decision.dropped_tools),
+        )
+        tool_definitions = None
+        working.append(Message.system(decision.notice))
+        # 让用户也知道 —— 否则他问"帮我找岗位"会得到"我查不了"却不明白原因
+        yield SSEFrame(
+            SSEEvent.NOTICE,
+            {
+                "kind": "tools_dropped",
+                "model_label": model_label,
+                "dropped_tools": decision.dropped_tools,
+                "message": (
+                    f"当前模型「{model_label}」未声明「工具调用」能力，"
+                    "本轮将只做纯文本回答，无法检索岗位库或发起抓取。"
+                ),
+                "suggestion": (
+                    "如果该模型确实支持工具调用，请到「系统设置 → 模型管理」"
+                    "勾选该能力；否则可在对话页顶部切换到支持工具调用的模型。"
+                ),
+            },
+        )
 
     seen_calls: set[str] = set()
 

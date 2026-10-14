@@ -15,6 +15,8 @@ const props = defineProps<{
   models: ModelConfig[]
   modelValue: number | null
   disabled?: boolean
+  /** 当前是否有待发送的图片附件（决定要不要提示"不支持看图"） */
+  hasPendingImages?: boolean
 }>()
 
 const emit = defineEmits<{ (event: 'update:modelValue', value: number): void }>()
@@ -118,9 +120,16 @@ function capsOf(item: ModelConfig): string[] {
       >
         {{ cap }}
       </el-tag>
-      <span v-if="!selected.capabilities.includes('vision')" class="switcher__warn">
+      <!--
+        能力提示只在**真的会挡住用户**时显示。
+        早先是"只要模型不支持看图就常驻警告"，结果问「n8n 是什么」这种
+        纯文本问题时也挂着一句橙色「无法解析简历截图」—— 看起来像在报错，
+        实际完全无关。现在仅在对应场景出现：
+        * 有待发送的图片附件时，才提示不支持看图
+      -->
+      <span v-if="hasPendingImages && !selected.capabilities.includes('vision')" class="switcher__warn">
         <el-icon><WarningFilled /></el-icon>
-        不支持看图，无法解析简历截图
+        将发送的图片无法被该模型识别，请换用支持「看图」的模型
       </span>
     </div>
   </div>

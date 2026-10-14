@@ -386,3 +386,12 @@ export interface SSEToolResultData {
   data: ToolResultPayload | null
   latency_ms?: number
 }
+
+/** 降级说明：不是失败，但用户需要知道某项能力被放弃 */
+export interface SSENoticeData {
+  kind: string
+  model_label: string
+  dropped_tools?: string[]
+  message: string
+  suggestion?: string
+}

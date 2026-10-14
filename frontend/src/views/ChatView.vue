@@ -49,6 +49,11 @@ function onSearchInput(value: string) {
   }, 300)
 }
 
+/** 待发送里是否有图片 —— 决定模型选择器要不要提示"不支持看图" */
+const pendingImages = computed(() =>
+  pendingAttachments.value.some((item) => item.kind === 'image'),
+)
+
 const scrollArea = ref<HTMLDivElement | null>(null)
 const pendingAttachments = ref<ChatAttachment[]>([])
 
@@ -315,6 +320,7 @@ function timeLabel(value: string | null): string {
           v-model="store.selectedModelId"
           :models="store.enabledModels"
           :disabled="store.sending"
+          :has-pending-images="pendingImages"
           @update:model-value="store.switchModel"
         />
       </header>
