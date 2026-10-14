@@ -166,7 +166,14 @@ async def main() -> int:
     else:
         print("本次没有创建抓取任务。")
 
-    print(f"会话 id={conversation_id}（可在界面查看，或手动删除）")
+    print(f"会话 id={conversation_id}")
+
+    # 清掉本次造的任务与对话 —— 否则它们会出现在用户的历史记录里，
+    # 看起来像用户自己产生的垃圾数据
+    from manual_cleanup import cleanup_verification_data
+
+    summary = await cleanup_verification_data(extra_conversation_ids=[conversation_id])
+    print(f"已清理：任务 {summary['tasks']} 条，对话 {summary['conversations']} 个")
     return 0
 
 

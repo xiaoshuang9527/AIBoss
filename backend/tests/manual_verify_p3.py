@@ -204,18 +204,18 @@ async def main() -> int:
     print(f"\n结论：{passed}/{len(results)} 通过")
 
     # ---- 清理 ----
-    from sqlalchemy import delete
-
+    # 先取消任务（避免后台真的去跑），再统一删除测试数据。
+    # 走共享清理工具，避免各脚本各写一份、漏掉某个表。
     for task_id in created_ids:
         http_json("POST", f"/api/tasks/{task_id}/cancel")
-    async with SessionLocal() as db:
-        await db.execute(delete(ScrapeTask).where(ScrapeTask.keyword == SENTINEL))
-        for conv_id in (my_id, other_id):
-            row = await db.get(ChatConversation, conv_id)
-            if row is not None:
-                await db.delete(row)
-        await db.commit()
-    print("测试数据已清理")
+
+    from manual_cleanup import cleanup_verification_data
+
+    summary = await cleanup_verification_data(
+        extra_task_keywords=[SENTINEL],
+        extra_conversation_ids=[my_id, other_id],
+    )
+    print(f"测试数据已清理：任务 {summary['tasks']} 条，对话 {summary['conversations']} 个")
 
     return 0 if passed == len(results) else 1
 

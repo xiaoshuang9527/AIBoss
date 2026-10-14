@@ -279,24 +279,25 @@ async def main() -> int:
         return 0 if (ok and in_range) else 1
     finally:
         # ---- 清理与恢复 ----
-        from sqlalchemy import delete
-
-        async with SessionLocal() as db:
-            if profile_backup is not None:
+        # 恢复授权状态（本脚本为验证流程临时设过 active）
+        if profile_backup is not None:
+            async with SessionLocal() as db:
                 profile = await db.get(AuthProfile, 1)
                 if profile is not None:
                     profile.status = profile_backup
-            await db.execute(
-                delete(ChatAttachment).where(ChatAttachment.conversation_id == conversation_id)
-            )
-            await db.execute(
-                delete(ChatMessage).where(ChatMessage.conversation_id == conversation_id)
-            )
-            row = await db.get(ChatConversation, conversation_id)
-            if row is not None:
-                await db.delete(row)
-            await db.commit()
-        print("\n（测试数据已清理，授权状态已恢复）")
+                    await db.commit()
+
+        # 走共享清理工具：它按"标题是否能在自己的消息里找到出处"判断残留，
+        # 避免误伤用户的真实对话
+        from manual_cleanup import cleanup_verification_data
+
+        summary = await cleanup_verification_data(
+            extra_conversation_ids=[conversation_id]
+        )
+        print(
+            f"\n（测试数据已清理：任务 {summary['tasks']} 条、"
+            f"对话 {summary['conversations']} 个；授权状态已恢复）"
+        )
 
 
 if __name__ == "__main__":
